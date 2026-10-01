@@ -373,6 +373,8 @@ test("request layer stops for challenge, permissions and rate limit; bounds retr
     rate.request("/api/v1/test/"),
     (e) => e instanceof CollectionError && e.kind === "rate" && !!e.retryAt,
   );
+  // Other error classifications use a fresh logical window; cooldown persistence is tested separately.
+  await d.settings.update("preferences", { cooldownUntil: 0 });
   const login = new Instagram(
     pacer,
     async () =>
@@ -690,5 +692,547 @@ test("startup recovery and fresh restart preserve historical results and decisio
   assert.equal((await d.candidates.get([m.id, "1"]))!.decision, "possible");
   assert.equal(await d.results.where("runId").equals(r.id).count(), 1);
   assert.equal(await d.results.where("runId").equals(restart.id).count(), 2);
+  await d.delete();
+});
+
+const rawComment = (
+  id: string,
+  author = id,
+  extra: Record<string, any> = {},
+) => ({
+  pk: id,
+  user: { pk: author, username: `person${author}` },
+  ...extra,
+});
+async function testInstagram(fetcher: any) {
+  const d = database();
+  let now = Date.now();
+  const pacer = new Pacer(
+    d,
+    async (ms) => {
+      now += ms;
+    },
+    () => now,
+  );
+  const instagram = new Instagram(
+    pacer,
+    fetcher,
+    async () => "synthetic-csrf",
+    async (ms) => {
+      now += ms;
+    },
+  );
+  return {
+    d,
+    instagram,
+    pacer,
+    advance: (time: number) => {
+      now = time;
+    },
+  };
+}
+test("comment previews and all inline reply representations merge by ID; missing authors keep useful results partial", () => {
+  const page = commentsPage({
+    preview_comments: [
+      rawComment("10", "1", {
+        preview_child_comments: [rawComment("11", "2")],
+      }),
+    ],
+    comments: [
+      rawComment("10", "1", {
+        child_comments: [rawComment("11", "2"), rawComment("12", "3")],
+        edge_threaded_comments: {
+          count: 3,
+          edges: [{ node: rawComment("13", "4") }],
+        },
+      }),
+      { pk: "deleted" },
+    ],
+    has_more_comments: false,
+  });
+  assert.equal(page.items.length, 2);
+  assert.equal(page.items[1].profile, undefined);
+  assert.deepEqual(
+    page.items[0].replies.map((r) => r.id),
+    ["11", "12", "13"],
+  );
+  assert.equal(page.items[0].replyCount, 3);
+  assert.equal(page.warnings?.length, 1);
+});
+test("head and tail comment cursors are distinct and queued instead of dropping one branch", () => {
+  const page = commentsPage({
+    comments: [],
+    has_more_comments: true,
+    next_max_id: "tail",
+    has_more_headload_comments: true,
+    next_min_id: "head",
+  });
+  assert.equal(page.next, "max:tail");
+  assert.equal(
+    commentsPage({
+      comments: [],
+      has_more_comments: true,
+      next_max_id: "",
+      max_id: "alternate",
+    }).next,
+    "max:alternate",
+  );
+  assert.equal(
+    commentsPage({
+      comments: [],
+      has_more_headload_comments: true,
+      next_min_id: "",
+      min_id: "alternate",
+    }).next,
+    "min:alternate",
+  );
+  assert.deepEqual(page.pendingCursors, ["min:head"]);
+  const next = nextCheckpoint(cp, page);
+  assert.equal(next.cursor, "max:tail");
+  const head = nextCheckpoint(next, { items: [], more: false, next: null });
+  assert.equal(head.cursor, "min:head");
+  assert.equal(head.branchStart, true);
+  assert.equal(
+    nextCheckpoint(head, { items: [], more: false, next: null }).cursor,
+    null,
+  );
+  assert.equal(
+    commentsPage({
+      comments: [],
+      has_more_comments: false,
+      has_more_headload_comments: true,
+      next_min_id: "older",
+    }).next,
+    "min:older",
+  );
+  assert.equal(
+    commentsPage(
+      {
+        child_comments: [],
+        has_more_head_child_comments: true,
+        next_min_id: "older",
+      },
+      true,
+    ).next,
+    "min:older",
+  );
+});
+test("comments and replies send the correct min/max parameter, including legacy saved cursors", async () => {
+  const urls: URL[] = [];
+  const { d, instagram } = await testInstagram(async (input: string) => {
+    const url = new URL(input);
+    urls.push(url);
+    return new Response(
+      JSON.stringify(
+        url.pathname.endsWith("child_comments/")
+          ? { child_comments: [] }
+          : { comments: [] },
+      ),
+    );
+  });
+  await instagram.comments("64", "max:tail");
+  await instagram.comments("64", "min:head");
+  await instagram.comments("64", "legacy");
+  await instagram.replies("64", "10", "min:head");
+  await instagram.replies("64", "10", "legacy");
+  assert.deepEqual(
+    urls.map((u) => [
+      u.searchParams.get("max_id"),
+      u.searchParams.get("min_id"),
+    ]),
+    [
+      ["tail", null],
+      [null, "head"],
+      [null, "legacy"],
+      [null, "head"],
+      ["legacy", null],
+    ],
+  );
+  await d.delete();
+});
+test("follow compatibility fallback uses the alternate host and still paces both requests", async () => {
+  const calls: { url: URL; headers: Headers; time: number }[] = [];
+  let api: Awaited<ReturnType<typeof testInstagram>>;
+  api = await testInstagram(async (input: string, init: RequestInit) => {
+    const url = new URL(input);
+    calls.push({
+      url,
+      headers: new Headers(init.headers),
+      time: (await api.d.settings.get("preferences"))!.lastRequestAt!,
+    });
+    return url.hostname === "www.instagram.com"
+      ? new Response('{"message":"Not found"}', { status: 404 })
+      : new Response(
+          JSON.stringify({
+            users: [{ pk: "1", username: "one" }],
+            more_available: false,
+          }),
+        );
+  });
+  const page = await api.instagram.follows("100", "followers", null);
+  assert.equal(page.items[0].id, "1");
+  assert.deepEqual(
+    calls.map((c) => c.url.hostname),
+    ["www.instagram.com", "i.instagram.com"],
+  );
+  assert.equal(calls[0].url.searchParams.get("max_id"), "0");
+  assert.ok(calls[1].time - calls[0].time >= 5000);
+  assert.equal(calls[0].headers.get("x-asbd-id"), "198387");
+  assert.equal(calls[0].headers.get("x-csrftoken"), "synthetic-csrf");
+  await api.d.delete();
+});
+test("fallback never retries login challenges, permission denials or rate limits through another host", async () => {
+  for (const [status, body, kind] of [
+    [401, "{}", "login"],
+    [403, "{}", "restricted"],
+    [429, "{}", "rate"],
+    [400, '{"message":"challenge_required"}', "login"],
+  ] as const) {
+    let calls = 0;
+    const { d, instagram } = await testInstagram(async () => {
+      calls++;
+      return new Response(body, { status });
+    });
+    await assert.rejects(
+      instagram.follows("100", "followers", null),
+      (e) => e instanceof CollectionError && e.kind === kind,
+    );
+    assert.equal(calls, 1);
+    await d.delete();
+  }
+});
+test("profile lookup can fall back to username feed and prefers high-resolution images without inventing counts", async () => {
+  const calls: string[] = [];
+  const { d, instagram } = await testInstagram(async (input: string) => {
+    calls.push(new URL(input).pathname);
+    return input.includes("web_profile_info")
+      ? new Response("{}", { status: 404 })
+      : new Response(
+          JSON.stringify({
+            user: {
+              pk: "12345678901234567890",
+              username: "person",
+              profile_pic_url: "low",
+              hd_profile_pic_url_info: { url: "high" },
+            },
+            items: [],
+          }),
+        );
+  });
+  const p = await instagram.profile("person");
+  assert.equal(p.id, "12345678901234567890");
+  assert.equal(p.avatarUrl, "high");
+  assert.equal(p.followerCount, undefined);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], "/api/v1/feed/user/person/username/");
+  await d.delete();
+});
+test("numeric follow offsets require explicit continuation and a full page; terminal/restricted/opaque cursors never invent offsets", () => {
+  const users = Array.from({ length: 50 }, (_, i) => ({
+    pk: String(i + 1),
+    username: `person${i}`,
+  }));
+  assert.equal(listPage({ users, has_more: true }).next, "50");
+  assert.equal(listPage({ users, has_more: true }, "50").next, "100");
+  assert.equal(listPage({ users, has_more: false }).next, null);
+  assert.equal(listPage({ users, has_more: true }, "opaque").next, null);
+  assert.equal(
+    listPage({ users, has_more: true, should_limit_list_of_followers: true })
+      .next,
+    null,
+  );
+  assert.equal(
+    listPage({ users: users.slice(0, 2), has_more: true }).next,
+    null,
+  );
+  assert.ok(listPage({ should_limit_list_of_followers: true }).restricted);
+});
+test("rotating follow cursors with identical pages stop after saving the page instead of looping", async () => {
+  let calls = 0;
+  const { d, r, runner } = await runSetup(
+    {
+      follows: async () => ({
+        items: [profile("1")],
+        next: `cursor-${++calls}`,
+        more: true,
+      }),
+    },
+    "followers",
+  );
+  await runner.run(r.id);
+  assert.equal(calls, 2);
+  assert.equal((await d.runs.get(r.id))!.status, "partial");
+  assert.equal(await d.follows.count(), 1);
+  await d.delete();
+});
+test("queued comment branches survive backup and explicit resume, including an overlapping first head page", async () => {
+  let failed = true;
+  const calls: (string | null)[] = [];
+  const adapter = {
+    comments: async (_post: string, cursor: string | null) => {
+      calls.push(cursor);
+      if (cursor === "max:tail" && failed)
+        throw new CollectionError("Offline", "network");
+      if (!cursor)
+        return commentsPage({
+          comments: [rawComment("10", "1")],
+          has_more_comments: true,
+          next_max_id: "tail",
+          has_more_headload_comments: true,
+          next_min_id: "head",
+        });
+      if (cursor === "max:tail")
+        return commentsPage({
+          comments: [rawComment("11", "2")],
+          has_more_comments: false,
+        });
+      if (cursor === "min:head")
+        return commentsPage({
+          comments: [rawComment("10", "1")],
+          has_more_comments: false,
+          has_more_headload_comments: true,
+          next_min_id: "head2",
+        });
+      return commentsPage({
+        comments: [rawComment("12", "3")],
+        has_more_comments: false,
+      });
+    },
+  };
+  const { d, r, runner } = await runSetup(adapter, "commenters", true);
+  await runner.run(r.id);
+  assert.deepEqual((await d.runs.get(r.id))!.checkpoint.pendingCursors, [
+    "min:head",
+  ]);
+  const backup = await exportBackup(d);
+  await restoreBackup(backup, d);
+  failed = false;
+  await runner.run(r.id);
+  assert.equal((await d.runs.get(r.id))!.status, "completed");
+  assert.deepEqual(calls, [
+    null,
+    "max:tail",
+    "max:tail",
+    "min:head",
+    "min:head2",
+  ]);
+  assert.equal(await d.seenComments.count(), 3);
+  await d.delete();
+});
+test("an exhausted reply endpoint with fewer replies than reported stays partial even without a post count", async () => {
+  const { d, r, runner } = await runSetup(
+    {
+      comments: async () =>
+        commentsPage({
+          comments: [
+            rawComment("10", "1", {
+              child_comment_count: 5,
+              preview_child_comments: [rawComment("11", "2")],
+            }),
+          ],
+          has_more_comments: false,
+        }),
+      replies: async () =>
+        commentsPage(
+          {
+            child_comments: [rawComment("11", "2"), rawComment("12", "3")],
+            has_more_tail_child_comments: false,
+          },
+          true,
+        ),
+    },
+    "commenters",
+    true,
+  );
+  await runner.run(r.id);
+  const saved = (await d.runs.get(r.id))!;
+  assert.equal(saved.status, "partial");
+  assert.match(saved.reason!, /2 of 5 reported replies/);
+  assert.equal(await d.comments.count(), 3);
+  await d.delete();
+});
+test("an unavailable media endpoint does not discard saved posts or prevent collecting their commenters", async () => {
+  const post = { id: "10", ownerId: "100", url: "" };
+  const { d, r, runner } = await runSetup(
+    {
+      media: async (_id: string, _cursor: string, channel: string) => {
+        if (channel === "reels")
+          throw new CollectionError("Endpoint changed", "schema");
+        return { items: [post], next: null, more: false };
+      },
+      comments: async () =>
+        commentsPage({
+          comments: [rawComment("10", "1")],
+          has_more_comments: false,
+        }),
+    },
+    "commenters",
+  );
+  await runner.run(r.id);
+  assert.equal((await d.runs.get(r.id))!.status, "partial");
+  assert.equal((await d.runPosts.get([r.id, "10"]))!.done, 1);
+  assert.equal(await d.comments.count(), 1);
+  await d.delete();
+});
+test("media login/access/cooldown decisions still stop the job without continuing to comments", async () => {
+  for (const kind of ["login", "restricted", "rate"] as const) {
+    let comments = 0;
+    const { d, r, runner } = await runSetup(
+      {
+        media: async () => {
+          throw new CollectionError(
+            "Stop",
+            kind,
+            kind === "rate" ? Date.now() + 60000 : undefined,
+          );
+        },
+        comments: async () => {
+          comments++;
+          return commentsPage({ comments: [] });
+        },
+      },
+      "commenters",
+    );
+    await runner.run(r.id);
+    assert.equal(comments, 0);
+    assert.equal(
+      (await d.runs.get(r.id))!.status,
+      kind === "login" ? "paused" : kind === "rate" ? "cooldown" : "partial",
+    );
+    await d.delete();
+  }
+});
+test("a failure in the second follow stage is partial, not failed, with the first stage preserved", async () => {
+  const { d, r, runner } = await runSetup({
+    follows: async (_id: string, kind: string) => {
+      if (kind === "following")
+        throw new CollectionError("Unavailable", "network");
+      return { items: [profile("1")], next: null, more: false };
+    },
+  });
+  await runner.run(r.id);
+  assert.equal((await d.runs.get(r.id))!.status, "partial");
+  assert.equal(await d.results.where("runId").equals(r.id).count(), 1);
+  assert.equal((await d.runs.get(r.id))!.checkpoint.stage, "following");
+  await d.delete();
+});
+test("rate-limit cooldown applies to fresh lookups, survives reload and restore, and resumes only when expired", async () => {
+  let requests = 0;
+  const { d, instagram, advance } = await testInstagram(async () => {
+    requests++;
+    return requests === 1
+      ? new Response("{}", { status: 429, headers: { "Retry-After": "120" } })
+      : new Response('{"ok":true}');
+  });
+  const oldBackup = await exportBackup(d);
+  await assert.rejects(instagram.request("/api/v1/test/"));
+  const until = (await d.settings.get("preferences"))!.cooldownUntil!;
+  assert.ok(until > Date.now());
+  await assert.rejects(
+    instagram.profile("person"),
+    (e) => e instanceof CollectionError && e.kind === "rate",
+  );
+  assert.equal(requests, 1);
+  await restoreBackup(oldBackup, d);
+  assert.equal((await d.settings.get("preferences"))!.cooldownUntil, until);
+  const fresh = new Instagram(
+    new Pacer(d),
+    async () => {
+      requests++;
+      return new Response("{}");
+    },
+    async () => "synthetic",
+  );
+  await assert.rejects(
+    fresh.request("/api/v1/test/"),
+    (e) => e instanceof CollectionError && e.kind === "rate",
+  );
+  assert.equal(requests, 1);
+  advance(until + 1);
+  assert.equal((await instagram.request("/api/v1/test/")).ok, true);
+  assert.equal(requests, 2);
+  await d.delete();
+});
+
+test("merging duplicate reply trees retains descendants present in only one preview representation", () => {
+  const page = commentsPage({
+    preview_comments: [
+      rawComment("10", "1", {
+        preview_child_comments: [
+          rawComment("11", "2", { child_comments: [rawComment("12", "3")] }),
+        ],
+      }),
+    ],
+    comments: [
+      rawComment("10", "1", { child_comments: [rawComment("11", "2")] }),
+    ],
+  });
+  assert.equal(page.items[0].replies[0].replies[0].id, "12");
+});
+test("pause during cookie lookup does not start another network request", async () => {
+  const d = database();
+  let requests = 0;
+  const controller = new AbortController();
+  const instagram = new Instagram(
+    new Pacer(d),
+    async () => {
+      requests++;
+      return new Response("{}");
+    },
+    async () => {
+      controller.abort();
+      return "synthetic";
+    },
+  );
+  await assert.rejects(
+    instagram.request("/api/v1/test/", controller.signal),
+    (e) => e instanceof DOMException && e.name === "AbortError",
+  );
+  assert.equal(requests, 0);
+  await d.delete();
+});
+
+test("available reply authors survive an unavailable parent author and still receive reply pagination", async () => {
+  let replyRequests = 0;
+  const { d, r, runner } = await runSetup(
+    {
+      comments: async () =>
+        commentsPage({
+          comments: [
+            {
+              pk: "10",
+              child_comment_count: 3,
+              preview_child_comments: [rawComment("11", "1")],
+            },
+          ],
+          has_more_comments: false,
+        }),
+      replies: async () => {
+        replyRequests++;
+        return commentsPage(
+          {
+            child_comments: [
+              rawComment("11", "1"),
+              rawComment("12", "2"),
+              rawComment("13", "3"),
+            ],
+            has_more_tail_child_comments: false,
+          },
+          true,
+        );
+      },
+    },
+    "commenters",
+    true,
+  );
+  await runner.run(r.id);
+  assert.equal(replyRequests, 1);
+  assert.equal(await d.comments.count(), 3);
+  assert.equal(await d.results.where("runId").equals(r.id).count(), 3);
+  assert.equal((await d.runs.get(r.id))!.status, "partial");
+  assert.match(
+    (await d.runs.get(r.id))!.reason!,
+    /authors or IDs were unavailable/,
+  );
   await d.delete();
 });

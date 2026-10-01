@@ -1,0 +1,26 @@
+# Collector comparison with InExporter
+
+Reviewed October 1, 2026 against the installed InExporter **1.3.0**, extension ID `iffbofdalhbflagjclkhbkbknhiflcam`. The comparison is based on the request builders, response normalizers, and collection functions in its installed `js/options.js`, plus its manifest. No InExporter files were modified or included in this project.
+
+Reference bundle SHA-256: `ceeb31168a5629b32d7c3c80259d4920cec2c04f8e4a89580642d351e840c231`.
+
+| Area                        | Observed in InExporter                                                                                         | InstaFinder changes                                                                                                                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Follow lists                | Requests web and `i.instagram.com` friendship endpoints with an initial numeric cursor                         | Try the alternate host on schema/network failures; start at `max_id=0`. Every attempt remains paced.                                                                                                              |
+| Missing follow cursors      | The normalizer generates a numeric offset on a non-empty page                                                  | Generate an offset only for a full page with explicit continuation and a numeric starting cursor. Otherwise stop partial. Repeated pages with changing cursors stop too.                                          |
+| Profile lookup              | Several resolution paths, including web profile info and a username feed                                       | Fall back from web profile info to the username feed. Keep unknown counts unknown and prefer supplied high-resolution avatar URLs.                                                                                |
+| Comment pagination          | Distinguishes `max`/`min` cursors and headload comments                                                        | Preserve the direction in checkpoints and send the matching request parameter. Queue both branches when both are present, including across backup/resume.                                                         |
+| Inline comments and replies | Flattens previews, child comments, and threaded comment edges                                                  | Merge all representations recursively by comment ID. Save accessible authors while marking unavailable authors partial.                                                                                           |
+| Reply traversal             | The inspected bundle includes inline/threaded replies; no dedicated child-comment pagination request was found | Retain our dedicated reply pagination, add both cursor directions, and compare fetched replies with the reported thread count. Short threads stay partial even without a post-level count.                        |
+| Media collection            | REST feed requests plus GraphQL recent-media paths                                                             | Retain feed/reels traversal. If an endpoint/schema is unavailable, process the other channel and already saved posts, with a partial-coverage warning. Login, access denials and cooldowns still stop collection. |
+| Recovery and cooldowns      | Has error classification and task resume                                                                       | Retain atomic page/checkpoint saves; preserve results from earlier stages. Store cooldowns across jobs and reloads, and preserve them when restoring an older backup.                                             |
+
+Compatibility fallbacks do not run after login challenges, permission denials, or rate limits. No authentication cookies are saved. The default request delay and simple UI are unchanged.
+
+## Validation and remaining difference
+
+The regression suite covers request directions, preview merging, offset guards, alternate hosts, failure stops, reply shortfalls, repeated pages, interrupted branch resume, cooldown persistence, and pause during cookie lookup. The browser suite exercises the actual extension request layer with synthetic Instagram responses, including an endpoint fallback and six comments across reply/head/tail pages that deduplicate to three commenter/post links.
+
+InExporter also tries GraphQL document IDs and a comment query hash. Those routes were not added here: their availability has not been verified, and document identifiers can change. If the REST adapters stop working for an accessible account, this remains a compatibility difference worth investigating with a live response.
+
+Live testing remains unavailable because Chrome computer control returns `Sky Computer Use native pipe startup failed`. The comparison proves what the installed code does and what our regression fixtures exercise; it does not prove Instagram's live endpoints currently accept these requests.

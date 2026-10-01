@@ -65,6 +65,8 @@ export interface Checkpoint {
   channel?: "feed" | "reels";
   postId?: string;
   seenCursors: string[];
+  pendingCursors?: string[];
+  branchStart?: boolean;
   pageCount: number;
   stageCount: number;
   commentsDone?: boolean;
@@ -108,6 +110,11 @@ export interface Thread {
   commentId: string;
   cursor: string | null;
   seenCursors: string[];
+  pendingCursors?: string[];
+  branchStart?: boolean;
+  expectedCount?: number;
+  fetchedCount?: number;
+  pageCount?: number;
   done: number;
 }
 export interface SeenComment {
@@ -119,6 +126,7 @@ export interface Settings {
   id: string;
   delaySeconds: number;
   lastRequestAt?: number;
+  cooldownUntil?: number;
 }
 export interface Observation {
   profiles?: Profile[];
@@ -138,10 +146,12 @@ export interface Page<T> {
   more: boolean;
   restricted?: string;
   expected?: number;
+  pendingCursors?: string[];
+  warnings?: string[];
 }
 export interface CommentItem {
   id: string;
-  profile: Profile;
+  profile?: Profile;
   replyCount: number;
   replies: CommentItem[];
 }

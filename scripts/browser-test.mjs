@@ -44,56 +44,131 @@ try {
     full_name: name,
     profile_pic_url: "",
   });
-  await context.route("https://www.instagram.com/**", async (route) => {
-    const url = new URL(route.request().url());
-    requests.push(url.pathname + url.search);
-    let body;
-    if (url.pathname.includes("web_profile_info")) {
-      const username = url.searchParams.get("username");
-      const p =
-        username === "casey"
-          ? user("104", "casey", "Casey Hall")
-          : username === "avery"
-            ? user("101", "avery", "Avery Stone")
-            : user("100", "source", "Opening Night");
-      body = {
-        data: {
-          user: {
-            ...p,
-            edge_followed_by: { count: 2 },
-            edge_follow: { count: 2 },
-            edge_owner_to_timeline_media: { count: 0 },
+  await context.route(
+    /^https:\/\/(?:www|i)\.instagram\.com\//,
+    async (route) => {
+      const url = new URL(route.request().url());
+      requests.push(url.hostname + url.pathname + url.search);
+      let body;
+      if (url.pathname.includes("web_profile_info")) {
+        const username = url.searchParams.get("username");
+        const p =
+          username === "casey"
+            ? user("104", "casey", "Casey Hall")
+            : username === "avery"
+              ? user("101", "avery", "Avery Stone")
+              : user("100", "source", "Opening Night");
+        body = {
+          data: {
+            user: {
+              ...p,
+              edge_followed_by: { count: 2 },
+              edge_follow: { count: 2 },
+              edge_owner_to_timeline_media: { count: 0 },
+            },
           },
+        };
+      } else if (url.pathname === "/api/v1/media/64/info/") {
+        if (url.hostname === "www.instagram.com") {
+          await route.fulfill({
+            status: 404,
+            contentType: "application/json",
+            body: '{"message":"Endpoint unavailable"}',
+          });
+          return;
+        }
+        body = {
+          items: [
+            {
+              pk: "64",
+              code: "BA",
+              user: user("100", "source", "Opening Night"),
+              comment_count: 6,
+            },
+          ],
+        };
+      } else if (url.pathname === "/api/v1/media/64/comments/") {
+        const author = (pk, id, username, name, extra = {}) => ({
+          pk,
+          user: user(id, username, name),
+          ...extra,
+        });
+        if (url.searchParams.get("max_id") === "tail")
+          body = {
+            comments: [author("14", "102", "taylor", "Taylor Reed")],
+            has_more_comments: false,
+          };
+        else if (url.searchParams.get("min_id") === "head")
+          body = {
+            comments: [author("15", "103", "nora", "Nora Fields")],
+            has_more_comments: false,
+            has_more_headload_comments: false,
+          };
+        else
+          body = {
+            preview_comments: [
+              author("10", "101", "avery", "Avery Stone", {
+                child_comment_count: 3,
+                preview_child_comments: [
+                  author("11", "102", "taylor", "Taylor Reed"),
+                ],
+              }),
+            ],
+            comments: [],
+            has_more_comments: true,
+            next_max_id: "tail",
+            has_more_headload_comments: true,
+            next_min_id: "head",
+          };
+      } else if (
+        url.pathname === "/api/v1/media/64/comments/10/child_comments/"
+      ) {
+        body =
+          url.searchParams.get("max_id") === "reply-tail"
+            ? {
+                child_comments: [
+                  { pk: "13", user: user("103", "nora", "Nora Fields") },
+                ],
+                has_more_tail_child_comments: false,
+              }
+            : {
+                child_comments: [
+                  { pk: "11", user: user("102", "taylor", "Taylor Reed") },
+                  { pk: "12", user: user("103", "nora", "Nora Fields") },
+                ],
+                has_more_tail_child_comments: true,
+                next_max_id: "reply-tail",
+              };
+      } else if (url.pathname.includes("/followers/"))
+        body = {
+          users: [
+            user("101", "avery", "Avery Stone"),
+            user("102", "taylor", "Taylor Reed"),
+          ],
+          more_available: false,
+        };
+      else if (url.pathname.includes("/following/"))
+        body = {
+          users: [
+            user("101", "avery", "Avery Stone"),
+            user("103", "nora", "Nora Fields"),
+          ],
+          more_available: false,
+        };
+      else throw new Error(`Unexpected mocked request ${url.pathname}`);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: {
+          "Access-Control-Allow-Origin":
+            route.request().headers().origin || "*",
+          "Access-Control-Allow-Credentials": "true",
+          "Access-Control-Allow-Headers": "*",
         },
-      };
-    } else if (url.pathname.includes("/followers/"))
-      body = {
-        users: [
-          user("101", "avery", "Avery Stone"),
-          user("102", "taylor", "Taylor Reed"),
-        ],
-        more_available: false,
-      };
-    else if (url.pathname.includes("/following/"))
-      body = {
-        users: [
-          user("101", "avery", "Avery Stone"),
-          user("103", "nora", "Nora Fields"),
-        ],
-        more_available: false,
-      };
-    else throw new Error(`Unexpected mocked request ${url.pathname}`);
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      headers: {
-        "Access-Control-Allow-Origin": route.request().headers().origin || "*",
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Headers": "*",
-      },
-      body: JSON.stringify(body),
-    });
-  });
+        body: JSON.stringify(body),
+      });
+    },
+  );
   page = await context.newPage();
   const errors = [];
   page.on("console", (message) => {
@@ -279,7 +354,47 @@ try {
     path: ".test-artifacts/candidates-desktop.png",
     fullPage: true,
   });
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
+  await page
+    .getByLabel("Username or Instagram URL")
+    .fill("https://www.instagram.com/p/BA/");
+  await page.getByRole("button", { name: "Look up account" }).click();
+  await page.getByRole("button", { name: "Add source & collect" }).click();
+  await page.locator(".collection-banner").waitFor({ state: "visible" });
+  await page
+    .locator(".collection-banner")
+    .waitFor({ state: "hidden", timeout: 30000 });
   await page.addScriptTag({ url: `chrome-extension://${id}/verification.js` });
+  const comments = await page.evaluate(async () => {
+    const api = window.__testing;
+    const run = (await api.db.runs.toArray()).find(
+      (run) => run.targetPostId === "64",
+    );
+    return {
+      status: run.status,
+      comments: await api.db.seenComments.where("runId").equals(run.id).count(),
+      links: await api.db.comments.count(),
+    };
+  });
+  assert.deepEqual(comments, { status: "completed", comments: 6, links: 3 });
+  assert.ok(
+    requests.some((url) =>
+      url.startsWith("i.instagram.com/api/v1/media/64/info/"),
+    ),
+  );
+  assert.ok(
+    requests.some(
+      (url) => url.includes("/64/comments/?") && url.includes("max_id=tail"),
+    ),
+  );
+  assert.ok(
+    requests.some(
+      (url) => url.includes("/64/comments/?") && url.includes("min_id=head"),
+    ),
+  );
+  checks.push(
+    "Real extension requests follow a compatible endpoint fallback and collect preview authors, paginated replies, and both comment cursor directions without duplicate links.",
+  );
   const backup = await page.evaluate(async () => {
     const api = window.__testing;
     const original = await api.exportBackup();

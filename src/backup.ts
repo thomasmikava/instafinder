@@ -1,4 +1,4 @@
-import { db, type Database } from "./db";
+import { db, preferences, type Database } from "./db";
 import { rebuildMission } from "./data";
 const names = [
   "profiles",
@@ -31,6 +31,7 @@ export async function exportBackup(database = db): Promise<Backup> {
     tables.settings = tables.settings.map((s) => ({
       id: "preferences",
       delaySeconds: s.delaySeconds,
+      ...(s.cooldownUntil ? { cooldownUntil: s.cooldownUntil } : {}),
     }));
     return {
       format: "instafinder",
@@ -175,12 +176,23 @@ export function validateBackup(input: unknown): Backup {
       r.commentCount < 0
     )
       throw new Error("Invalid collected post reference.");
+  const invalidQueue = (value: unknown) =>
+    value !== undefined &&
+    (!Array.isArray(value) ||
+      value.some((cursor) => typeof cursor !== "string"));
+  const invalidCount = (value: unknown) =>
+    value !== undefined && (!Number.isFinite(value) || Number(value) < 0);
   for (const t of b.tables.threads)
     if (
       ![0, 1].includes(t.done) ||
       (t.cursor !== null && typeof t.cursor !== "string") ||
       !Array.isArray(t.seenCursors) ||
-      t.seenCursors.some((c: unknown) => typeof c !== "string")
+      t.seenCursors.some((c: unknown) => typeof c !== "string") ||
+      invalidQueue(t.pendingCursors) ||
+      (t.branchStart !== undefined && typeof t.branchStart !== "boolean") ||
+      invalidCount(t.expectedCount) ||
+      invalidCount(t.fetchedCount) ||
+      invalidCount(t.pageCount)
     )
       throw new Error("Invalid reply checkpoint.");
   for (const r of b.tables.runs)
@@ -189,7 +201,10 @@ export function validateBackup(input: unknown): Backup {
         typeof r.checkpoint.cursor !== "string") ||
       r.checkpoint.seenCursors.some((c: unknown) => typeof c !== "string") ||
       !Number.isFinite(r.checkpoint.pageCount) ||
-      !Number.isFinite(r.checkpoint.stageCount)
+      !Number.isFinite(r.checkpoint.stageCount) ||
+      invalidQueue(r.checkpoint.pendingCursors) ||
+      (r.checkpoint.branchStart !== undefined &&
+        typeof r.checkpoint.branchStart !== "boolean")
     )
       throw new Error("Invalid pagination state.");
   for (const t of [...b.tables.threads, ...b.tables.seenComments])
@@ -200,7 +215,8 @@ export function validateBackup(input: unknown): Backup {
       s.id !== "preferences" ||
       !Number.isFinite(s.delaySeconds) ||
       s.delaySeconds < 1 ||
-      s.delaySeconds > 3600
+      s.delaySeconds > 3600 ||
+      invalidCount(s.cooldownUntil)
     )
       throw new Error("Invalid request delay.");
   return b;
@@ -209,6 +225,7 @@ export async function restoreBackup(input: unknown, database = db) {
   const b = validateBackup(input);
   const profileMap = new Map(b.tables.profiles.map((p) => [p.id, p]));
   await database.transaction("rw", database.tables, async () => {
+    const localTiming = await preferences(database);
     for (const name of names) await database.table(name).clear();
     for (const name of names) {
       if (name === "affinities") continue;
@@ -243,9 +260,20 @@ export async function restoreBackup(input: unknown, database = db) {
         rows = rows.map((s) => ({
           id: "preferences",
           delaySeconds: s.delaySeconds,
+          ...(s.cooldownUntil ? { cooldownUntil: s.cooldownUntil } : {}),
         }));
       if (rows.length) await database.table(name).bulkPut(rows);
     }
+    // Restoring older data must not erase a cooldown already required by Instagram.
+    const restoredTiming = await preferences(database);
+    await database.settings.put({
+      ...restoredTiming,
+      lastRequestAt: localTiming.lastRequestAt,
+      cooldownUntil: Math.max(
+        localTiming.cooldownUntil || 0,
+        restoredTiming.cooldownUntil || 0,
+      ),
+    });
     const weights = new Map<
       string,
       { sourceId: string; profileId: string; score: number }

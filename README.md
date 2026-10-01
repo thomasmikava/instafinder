@@ -66,6 +66,8 @@ Instagram's browser APIs are **undocumented and can change**. The adapter is iso
 - Completed means requested pagination finished without detected restrictions or reported-count shortfalls; it cannot prove Instagram exposed every account/comment. Deleted accounts and changing counts can cause shortfalls.
 - Login challenges stop collection and require you to finish verification on Instagram. Rate limits produce a cooldown with a resume time. Transient network/server failures have bounded retries. Every request, including retries and replies, observes the delay.
 - Repeated/missing cursors stop traversal instead of looping forever. Previously saved pages remain available.
+- Comment checkpoints preserve both cursor directions and queued branches. Reply counts and unavailable authors can mark a collection partial. Compatible alternate endpoints observe the same pacing; challenges, access denials and cooldowns stop collection.
+- Cooldowns apply to all Instagram requests, including new lookups, and survive reloads and backup restoration. An unavailable feed/reels endpoint does not discard already collected posts; their commenters can still be collected with coverage marked partial.
 - Only one tab can collect at a time, enforced with a browser lock. Background timers may run later than the configured minimum delay.
 
 ## Development and checks
@@ -87,6 +89,8 @@ npx playwright install chromium
 It verifies real extension-origin IndexedDB beyond 50 MB, screenshots desktop/mobile views, and writes its report to `.test-artifacts/`. Synthetic data and verification hooks are not shipped in the production build. The browser suite does **not** demonstrate that Instagram's live endpoints currently work. A manual live smoke test should use an accessible small account and post, confirming pagination, replies, login/cooldown behavior and the collection's final coverage status.
 
 Delivery checks and the live verification limitation are recorded in [docs/VALIDATION.md](docs/VALIDATION.md).
+
+The comparison with the installed InExporter collector and resulting improvements are recorded in [docs/COLLECTION_COMPARISON.md](docs/COLLECTION_COMPARISON.md).
 
 ## Repository
 

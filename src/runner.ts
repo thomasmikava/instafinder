@@ -13,6 +13,7 @@ import type {
   Mode,
   Observation,
   Page,
+  Profile,
   Resolved,
   Run,
   RunPost,
@@ -32,11 +33,25 @@ export function nextCheckpoint(
       "Instagram repeated or omitted its next-page cursor. Collection stopped with partial results.",
       "restricted",
     );
+  const pending = [
+    ...new Set([
+      ...(checkpoint.pendingCursors || []),
+      ...(page.pendingCursors || []),
+    ]),
+  ].filter(
+    (cursor) =>
+      cursor !== checkpoint.cursor &&
+      cursor !== page.next &&
+      !checkpoint.seenCursors.includes(cursor),
+  );
+  const cursor = page.more ? page.next : pending.shift() || null;
   return {
     ...checkpoint,
-    cursor: page.more ? page.next : null,
-    seenCursors: page.more
-      ? [...checkpoint.seenCursors, page.next!]
+    cursor,
+    pendingCursors: pending,
+    branchStart: !page.more && !!cursor,
+    seenCursors: cursor
+      ? [...checkpoint.seenCursors, cursor]
       : checkpoint.seenCursors,
     pageCount: checkpoint.pageCount + 1,
   };
@@ -245,9 +260,32 @@ export class Runner {
             run.checkpoint.stage === "following"
           )
             await this.followStep(run, signal);
-          else if (run.checkpoint.stage === "media")
-            await this.mediaStep(run, signal);
-          else await this.commentStep(run, signal);
+          else if (run.checkpoint.stage === "media") {
+            try {
+              await this.mediaStep(run, signal);
+            } catch (error) {
+              if (
+                !(error instanceof CollectionError) ||
+                error.kind !== "schema"
+              )
+                throw error;
+              const saved = (await this.database.runs.get(run.id))!;
+              const channel = saved.checkpoint.channel || "feed";
+              await this.commit({
+                ...saved,
+                warnings: [
+                  ...new Set([
+                    ...(saved.warnings || []),
+                    `${channel} traversal could not finish: ${error.message}`,
+                  ]),
+                ],
+                checkpoint:
+                  channel === "feed"
+                    ? { ...fresh("media"), channel: "reels" }
+                    : fresh("comments"),
+              });
+            }
+          } else await this.commentStep(run, signal);
         }
         if (signal.aborted)
           await this.database.runs.update(runId, {
@@ -268,7 +306,15 @@ export class Runner {
               : failure?.kind === "rate"
                 ? "cooldown"
                 : failure?.kind === "restricted" ||
-                    (current?.checkpoint.pageCount || 0) > 0
+                    (current?.checkpoint.pageCount || 0) > 0 ||
+                    (await this.database.results
+                      .where("runId")
+                      .equals(runId)
+                      .count()) > 0 ||
+                    (await this.database.runPosts
+                      .where("runId")
+                      .equals(runId)
+                      .count()) > 0
                   ? "partial"
                   : "failed",
           reason: aborted
@@ -310,12 +356,20 @@ export class Runner {
     const newCount = new Set(
       results.filter((_, i) => !old[i]).map((r) => r.profileId),
     ).size;
+    run.warnings = [
+      ...new Set([...(run.warnings || []), ...(page.warnings || [])]),
+    ];
     let checkpoint = {
       ...run.checkpoint,
       stageCount: run.checkpoint.stageCount + newCount,
     };
     let failure: Error | undefined;
     try {
+      if (run.checkpoint.pageCount > 0 && newCount === 0 && page.more)
+        throw new CollectionError(
+          "Instagram repeated a follow page without new profiles. Saved results are partial.",
+          "restricted",
+        );
       checkpoint = nextCheckpoint(checkpoint, page);
     } catch (e) {
       failure = e as Error;
@@ -368,6 +422,11 @@ export class Runner {
     for (const p of page.items)
       if (!(await this.database.runPosts.get([run.id, p.id])))
         posts.push({ runId: run.id, postId: p.id, done: 0, commentCount: 0 });
+    if (run.checkpoint.pageCount > 0 && !posts.length && page.more)
+      failure = new CollectionError(
+        "Instagram repeated a media page without new posts. Saved results are partial.",
+        "restricted",
+      );
     if (!page.more && !failure && !page.restricted)
       checkpoint =
         channel === "feed"
@@ -441,6 +500,9 @@ export class Runner {
     const all = [
       ...new Map(flatten(page.items).map((c) => [c.id, c])).values(),
     ];
+    const authors = all.filter(
+      (c): c is CommentItem & { profile: Profile } => !!c.profile,
+    );
     const seen = all.map((c) => ({
       runId: run.id,
       postId: post.id,
@@ -450,28 +512,70 @@ export class Runner {
       seen.map((s) => [s.runId, s.postId, s.commentId]),
     );
     const progress = await this.database.runPosts.get([run.id, post.id]);
-    const count =
-      (progress?.commentCount || 0) + oldSeen.filter((s) => !s).length;
+    const newCount = oldSeen.filter((s) => !s).length;
+    const count = (progress?.commentCount || 0) + newCount;
+    run.warnings = [
+      ...new Set([...(run.warnings || []), ...(page.warnings || [])]),
+    ];
     let failure: Error | undefined;
     const threads: Thread[] = [];
     if (thread) {
       try {
         const n = nextCheckpoint(
-          { ...cp, cursor: thread.cursor, seenCursors: thread.seenCursors },
+          {
+            ...cp,
+            cursor: thread.cursor,
+            seenCursors: thread.seenCursors,
+            pendingCursors: thread.pendingCursors || [],
+            pageCount: thread.pageCount || 0,
+            branchStart: thread.branchStart,
+          },
           page,
         );
+        if (
+          (thread.pageCount || 0) > 0 &&
+          !thread.branchStart &&
+          newCount === 0 &&
+          page.more
+        )
+          throw new CollectionError(
+            "Instagram repeated a reply page without new comments. Saved results are partial.",
+            "restricted",
+          );
+        const fetchedCount = (thread.fetchedCount || 0) + newCount;
+        if (
+          !n.cursor &&
+          thread.expectedCount &&
+          fetchedCount < thread.expectedCount
+        )
+          run.warnings = [
+            ...new Set([
+              ...(run.warnings || []),
+              `Post ${post.id}, comment ${thread.commentId}: ${fetchedCount} of ${thread.expectedCount} reported replies were accessible.`,
+            ]),
+          ];
         threads.push({
           ...thread,
           cursor: n.cursor,
           seenCursors: n.seenCursors,
-          done: page.more ? 0 : 1,
+          pendingCursors: n.pendingCursors,
+          branchStart: n.branchStart,
+          pageCount: n.pageCount,
+          fetchedCount,
+          done: n.cursor ? 0 : 1,
         });
       } catch (error) {
         failure = error as Error;
       }
     } else {
       try {
-        cp = { ...nextCheckpoint(cp, page), commentsDone: !page.more };
+        if (cp.pageCount > 0 && !cp.branchStart && newCount === 0 && page.more)
+          throw new CollectionError(
+            "Instagram repeated a comment page without new comments. Saved results are partial.",
+            "restricted",
+          );
+        const next = nextCheckpoint(cp, page);
+        cp = { ...next, commentsDone: !next.cursor };
       } catch (error) {
         failure = error as Error;
       }
@@ -486,20 +590,25 @@ export class Runner {
             commentId: c.id,
             cursor: null,
             seenCursors: [],
+            pendingCursors: [],
+            expectedCount: c.replyCount,
+            fetchedCount: new Set(flatten(c.replies).map((reply) => reply.id))
+              .size,
+            pageCount: 0,
             done: 0,
           });
     }
     await this.commit(
       { ...run, checkpoint: cp },
       {
-        profiles: all.map((c) => c.profile),
-        comments: all.map((c) => ({
+        profiles: authors.map((c) => c.profile),
+        comments: authors.map((c) => ({
           postId: post.id,
           profileId: c.profile.id,
           ownerId: post.ownerId,
           lastSeenAt: Date.now(),
         })),
-        results: all.map((c) => ({
+        results: authors.map((c) => ({
           runId: run.id,
           kind: "commenters",
           profileId: c.profile.id,
