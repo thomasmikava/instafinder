@@ -49,6 +49,15 @@ try {
     async (route) => {
       const url = new URL(route.request().url());
       requests.push(url.hostname + url.pathname + url.search);
+      if (url.searchParams.get("username") === "cooldowntest") {
+        await route.fulfill({
+          status: 429,
+          contentType: "application/json",
+          headers: { "Retry-After": "60" },
+          body: '{"message":"Please wait"}',
+        });
+        return;
+      }
       let body;
       if (url.pathname.includes("web_profile_info")) {
         const username = url.searchParams.get("username");
@@ -171,7 +180,10 @@ try {
   );
   page = await context.newPage();
   const errors = [];
+  const diagnostics = [];
   page.on("console", (message) => {
+    if (message.text().startsWith("[InstaFinder]"))
+      diagnostics.push(message.text());
     if (message.type() === "error") console.error("Browser:", message.text());
   });
   page.on("requestfailed", (request) =>
@@ -813,6 +825,64 @@ try {
   });
   checks.push(
     "Checking the deletion option removes shared candidates and their source membership from other missions, while preserving those missions and recomputing priority.",
+  );
+  const beforeCooldown = requests.length;
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
+  await page.getByLabel("Username or Instagram URL").fill("cooldowntest");
+  await page
+    .getByRole("button", { name: "Look up account", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Instagram requested a cooldown. Try again after" })
+    .waitFor();
+  const cooldownTime = await page.evaluate(async () => {
+    const until = (await window.__testing.db.settings.get("preferences"))
+      .cooldownUntil;
+    return new Date(until).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "medium",
+    });
+  });
+  assert.ok((await page.getByRole("alert").innerText()).includes(cooldownTime));
+  assert.equal(requests.length, beforeCooldown + 1);
+  assert.ok(
+    diagnostics.some((message) =>
+      message.includes("Instagram response triggered a cooldown"),
+    ),
+  );
+  await page
+    .getByRole("button", { name: "Look up account", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "No new request was sent" })
+    .waitFor();
+  assert.ok((await page.getByRole("alert").innerText()).includes(cooldownTime));
+  assert.equal(requests.length, beforeCooldown + 1);
+  assert.ok(
+    diagnostics.some((message) =>
+      message.includes("Request skipped: saved Instagram cooldown"),
+    ),
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
+  await page.getByLabel("Username or Instagram URL").fill("cooldowntest");
+  await page
+    .getByRole("button", { name: "Look up account", exact: true })
+    .click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "No new request was sent" })
+    .waitFor();
+  assert.ok((await page.getByRole("alert").innerText()).includes(cooldownTime));
+  assert.equal(requests.length, beforeCooldown + 1);
+  await page.screenshot({
+    path: ".test-artifacts/cooldown.png",
+    fullPage: true,
+  });
+  checks.push(
+    "Fresh cooldown responses show a retry timestamp and diagnostic; subsequent lookups and reloads show a saved-cooldown message and diagnostic without sending another request.",
   );
   assert.deepEqual(errors, []);
   checks.push(

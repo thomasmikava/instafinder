@@ -1305,12 +1305,23 @@ test("rate-limit cooldown applies to fresh lookups, survives reload and restore,
       : new Response('{"ok":true}');
   });
   const oldBackup = await exportBackup(d);
-  await assert.rejects(instagram.request("/api/v1/test/"));
+  await assert.rejects(
+    instagram.request("/api/v1/test/"),
+    (e) =>
+      e instanceof CollectionError &&
+      e.kind === "rate" &&
+      e.message === "Instagram requested a cooldown." &&
+      !!e.retryAt,
+  );
   const until = (await d.settings.get("preferences"))!.cooldownUntil!;
   assert.ok(until > Date.now());
   await assert.rejects(
     instagram.profile("person"),
-    (e) => e instanceof CollectionError && e.kind === "rate",
+    (e) =>
+      e instanceof CollectionError &&
+      e.kind === "rate" &&
+      e.retryAt === until &&
+      e.message.includes("No new request was sent"),
   );
   assert.equal(requests, 1);
   await restoreBackup(oldBackup, d);

@@ -71,6 +71,8 @@ Instagram's browser APIs are **undocumented and can change**. The adapter is iso
 - Cooldowns apply to all Instagram requests, including new lookups, and survive reloads and backup restoration. An unavailable feed/reels endpoint does not discard already collected posts; their commenters can still be collected with coverage marked partial.
 - Only one tab can collect at a time, enforced with a browser lock. Background timers may run later than the configured minimum delay.
 
+Open DevTools on the **InstaFinder app tab** to inspect collection requests. A saved cooldown is checked before sending a request, so a blocked retry produces no new Network entry. The lookup dialog shows the retry time; the Console logs whether a cooldown came from a fresh response or saved state, with status/retry metadata only. Ensure Info messages are enabled. Cooldowns also survive reload and restore, and a lookup can be rate-limited before any collection-history entry is created.
+
 ## Development and checks
 
 ```sh

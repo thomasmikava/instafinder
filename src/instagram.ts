@@ -352,12 +352,19 @@ export class Pacer {
   async before(signal?: AbortSignal) {
     for (;;) {
       const settings = await preferences(this.database);
-      if (settings.cooldownUntil && settings.cooldownUntil > this.now())
+      if (settings.cooldownUntil && settings.cooldownUntil > this.now()) {
+        console.info(
+          "[InstaFinder] Request skipped: saved Instagram cooldown.",
+          {
+            retryAt: new Date(settings.cooldownUntil).toISOString(),
+          },
+        );
         throw new CollectionError(
-          "Instagram requested a cooldown. Resume after the indicated time.",
+          "An earlier Instagram response requested a cooldown. No new request was sent.",
           "rate",
           settings.cooldownUntil,
         );
+      }
       const remaining =
         (settings.lastRequestAt || 0) +
         Math.max(1, settings.delaySeconds) * 1000 -
@@ -479,8 +486,21 @@ export class Instagram {
             date || Date.now() + (seconds || 900) * 1000,
           );
           await this.pacer.cooldown(retryAt);
+          console.info(
+            "[InstaFinder] Instagram response triggered a cooldown.",
+            {
+              status: response.status,
+              reason:
+                response.status === 429
+                  ? "HTTP 429"
+                  : raw?.spam
+                    ? "spam flag"
+                    : "rate-limit message",
+              retryAt: new Date(retryAt).toISOString(),
+            },
+          );
           throw new CollectionError(
-            "Instagram requested a cooldown. Resume after the indicated time.",
+            "Instagram requested a cooldown.",
             "rate",
             retryAt,
           );

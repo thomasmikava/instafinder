@@ -44,7 +44,7 @@ import {
   validateBackup,
   type Backup,
 } from "./backup";
-import { parseInput } from "./instagram";
+import { CollectionError, parseInput } from "./instagram";
 import { runner } from "./runner";
 import type { Decision, Mission, Mode, Profile, Resolved, Run } from "./types";
 import "./styles.css";
@@ -78,8 +78,12 @@ const date = (time: number) =>
     timeStyle: "short",
   });
 const number = (n: number) => n.toLocaleString();
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const errorText = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof CollectionError && error.retryAt)
+    return `${message} Try again after ${new Date(error.retryAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" })}.`;
+  return message;
+};
 type Toast = (
   message: string,
   action?: { label: string; fn: () => void },
