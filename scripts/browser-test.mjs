@@ -276,7 +276,55 @@ try {
   await page.getByRole("button", { name: "Settings & backups" }).click();
   await page.getByLabel("Delay in seconds").fill("1");
   await page.getByRole("button", { name: "Save pace" }).click();
-  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page
+    .getByRole("button", { name: "Show walkthrough", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Find someone on Instagram", exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 1);
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  assert.ok(
+    (await page.locator(".intro-card").innerText()).includes(
+      "Person I met at Friday’s concert",
+    ),
+  );
+  await page.screenshot({
+    path: ".test-artifacts/onboarding-missions.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  assert.ok(
+    (await page.locator(".intro-card").innerText()).includes(
+      "probably not them, or could be them",
+    ),
+  );
+  await page.screenshot({
+    path: ".test-artifacts/onboarding-review.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Skip", exact: true }).click();
+  await page.getByRole("button", { name: "Settings & backups" }).click();
+  await page
+    .getByRole("button", { name: "Show walkthrough", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Find someone on Instagram", exact: true })
+    .waitFor();
+  assert.equal(
+    await page.locator(".intro-progress").getAttribute("aria-label"),
+    "Step 1 of 4",
+  );
+  await page.keyboard.press("Escape");
+  await page.reload();
+  await page
+    .getByRole("heading", { name: "Opening night", exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  checks.push(
+    "Settings reopens the walkthrough at its first card, with a concrete mission example and clear review choices; dismissal preserves the mission and one-time behavior.",
+  );
   await page.getByRole("button", { name: "Add source", exact: true }).click();
   await page
     .getByRole("heading", { name: "Add source", exact: true })

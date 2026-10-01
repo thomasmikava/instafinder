@@ -169,7 +169,7 @@ const introCards = [
   },
   {
     title: "Missions",
-    text: "A mission is one search. Give it a name to keep its candidates and your choices together.",
+    text: "A mission keeps accounts and your review decisions together. Name it after who you’re looking for, like “Person I met at Friday’s concert”.",
     Icon: Layers,
   },
   {
@@ -179,7 +179,7 @@ const introCards = [
   },
   {
     title: "Review candidates",
-    text: "A candidate is someone you might be looking for. Choose Not the person, Probably not or Possible match.",
+    text: "Look at each account and decide whether it’s definitely not the person you’re looking for, probably not them, or could be them.",
     Icon: Users,
   },
 ];
@@ -1361,10 +1361,12 @@ function SettingsDialog({
   close,
   toast,
   busy,
+  showWalkthrough,
 }: {
   close: () => void;
   toast: Toast;
   busy: boolean;
+  showWalkthrough: () => void;
 }) {
   const [delay, setDelay] = useState(5);
   const [backup, setBackup] = useState<Backup>();
@@ -1522,6 +1524,16 @@ function SettingsDialog({
             </div>
           </div>
         )}
+      </div>
+      <div className="settings-section">
+        <button
+          className="button secondary"
+          disabled={working}
+          onClick={showWalkthrough}
+        >
+          <Compass size={16} />
+          Show walkthrough
+        </button>
       </div>
     </Dialog>
   );
@@ -1822,6 +1834,10 @@ function App() {
           close={() => setDialog(null)}
           toast={toast}
           busy={!!activeRun}
+          showWalkthrough={() => {
+            setDialog(null);
+            setShowIntro(true);
+          }}
         />
       )}
       {dialog === "history" && (

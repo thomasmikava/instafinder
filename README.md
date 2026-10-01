@@ -27,7 +27,7 @@ The unpacked extension stores data under its extension ID in the Chrome profile.
 
 ## Your workflow
 
-- **Missions:** create a named search. The three-dot menu offers **Edit mission name** and **Add Candidate Manually**. The first visit shows four short cards explaining the workflow.
+- **Missions:** create a named search. The three-dot menu offers **Edit mission name** and **Add Candidate Manually**. The first visit shows four short cards explaining the workflow. Reopen them anytime with **Settings & backups → Show walkthrough**.
 - **Add source:** choose followers, following, both lists, or commenters. Use **Add Candidate Manually** in the mission menu for one account directly. Profile commenter collection scans all accessible feed posts and reels, including replies. A post/reel URL scans only that item.
 - **Delete mission:** candidates used only in that mission are deleted along with their saved relationships. Candidates or sources used by another mission stay by default. The unchecked option also deletes this mission’s candidates from other missions, including their decisions and source memberships. Excluded source-only profiles and unrelated saved profiles stay. Affected saved collections become partial and require collecting again; deleted profiles cannot return through cached results. Pause an active collection before deletion.
 - **Sources:** collection targets become sources. Promote a saved candidate or search your saved-profile library to add one. Promotion uses saved data, suggests collection, and never silently starts it. Demote sources whenever you like.

@@ -37,7 +37,7 @@ InstaFinder is a local, single-user Chrome extension for finding a person among 
 ## Local data and usability
 
 - Use React and IndexedDB with Chrome's unlimitedStorage permission; no 5/10/50 MB application limit.
-- Use a minimal responsive light interface with **Add source** as the main action. Put **Edit mission name** and **Add Candidate Manually** in a small three-dot menu. Show four short first-visit cards explaining the goal, missions, sources, and candidate review; keep the main interface free of explanatory copy and redundant statistics. Retain compact progress, empty states, and photo refresh.
+- Use a minimal responsive light interface with **Add source** as the main action. Put **Edit mission name** and **Add Candidate Manually** in a small three-dot menu. Show four short first-visit cards explaining the goal, missions, sources, and candidate review, with an option to replay them in Settings; keep the main interface free of explanatory copy and redundant statistics. Retain compact progress, empty states, and photo refresh.
 - Provide versioned full-data backup and restore in Settings. Removing the extension removes its local data, so backups matter.
 - Install/build with npm; use as an unpacked Chrome extension. No Node version pin or enforced version check, no separate server or SQLite installation.
 
