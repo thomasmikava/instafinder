@@ -17,7 +17,7 @@ npm run build
 2. Click **Load unpacked** and select this project's `dist` folder.
 3. Click the InstaFinder toolbar button (pin it if helpful), or open its extension options page.
 4. Sign in to Instagram normally in the **same Chrome profile**.
-5. Create a mission, click **Add candidates**, and enter a username or Instagram URL.
+5. Create a mission, click **Add source**, and enter a username or Instagram URL.
 
 There is no server to start, database to install, environment file to configure, or Node version pin/check. Node and npm are build/development tools; the built app runs inside Chrome.
 
@@ -28,10 +28,10 @@ The unpacked extension stores data under its extension ID in the Chrome profile.
 ## Your workflow
 
 - **Missions:** create a named search; rename or delete it. Deleting a mission preserves global profiles, relationships and collection history.
-- **Add candidates:** choose a single profile, followers, following, both lists, or commenters. Profile commenter collection scans all accessible feed posts and reels, including replies. A post/reel URL scans only that item.
+- **Add source:** choose followers, following, both lists, or commenters. Use the secondary single-candidate option to add one account directly. Profile commenter collection scans all accessible feed posts and reels, including replies. A post/reel URL scans only that item.
 - **Sources:** collection targets become sources. Promote a saved candidate or search your saved-profile library to add one. Promotion uses saved data, suggests collection, and never silently starts it. Demote sources whenever you like.
 - **Source visibility:** each mission defaults to excluding active sources from candidates. The Sources panel's checkbox can change this without losing decisions.
-- **Review:** choose **Not the person**, **Probably not**, or **Possible match**. Reviewed profiles leave the queue. Use `1`, `2`, `3`, Undo, or `Ctrl/⌘ Z`. Sources and fresh data update priority, but the visible card stays stable until you act.
+- **Review:** choose **Not the person**, **Probably not**, or **Possible match**. Reviewed profiles leave the queue. Use `1`, `2`, `3`, Undo, or `Ctrl/⌘ Z`. Ranking runs behind the scenes without point displays or explanations. The visible card stays stable until you act.
 - **Candidates:** search, filter by outcome, change a decision, or choose Unreviewed to clear it. Lists are paginated.
 - **Saved collections:** lookups can offer dated saved results without requiring a new request. Choose reuse, resume an incomplete collection, or collect again.
 - **Settings:** change the minimum delay between requests (five seconds by default) and export/restore a versioned JSON backup. Restore validates before atomically replacing local data. Authentication cookies are never in backups.

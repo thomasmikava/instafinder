@@ -108,9 +108,10 @@ try {
   );
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`chrome-extension://${id}/app.html`);
-  await page.getByRole("button", { name: "Create your first mission" }).click();
+  await page.getByRole("button", { name: "Create mission" }).click();
   await page.getByLabel("Mission name").fill("Opening night");
   await page
+    .getByRole("dialog")
     .getByRole("button", { name: "Create mission", exact: true })
     .click();
   await page
@@ -120,12 +121,18 @@ try {
   await page.getByLabel("Delay in seconds").fill("1");
   await page.getByRole("button", { name: "Save pace" }).click();
   await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
   await page
-    .getByRole("button", { name: "Add candidates", exact: true })
-    .click();
+    .getByRole("heading", { name: "Add source", exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("radio").count(), 4);
+  await page.screenshot({
+    path: ".test-artifacts/add-source.png",
+    fullPage: true,
+  });
   await page.getByLabel("Username or Instagram URL").fill("@source");
   await page.getByRole("button", { name: "Look up account" }).click();
-  await page.getByRole("button", { name: "Start collecting" }).click();
+  await page.getByRole("button", { name: "Add source & collect" }).click();
   await page
     .getByRole("heading", { name: "Avery Stone", exact: true })
     .waitFor({ timeout: 30000 });
@@ -134,11 +141,26 @@ try {
     { timeout: 30000 },
   );
   assert.equal(
-    await page.locator(".score-badge").innerText(),
-    "2 connection points",
+    await page.locator(".score-badge, .table-score, .review-notes").count(),
+    0,
+  );
+  assert.equal(
+    await page
+      .getByText(
+        /connection points|Closer connections|prioritize people|Follows a source/,
+      )
+      .count(),
+    0,
+  );
+  assert.equal(
+    await page.getByRole("button", { name: "Add source", exact: true }).count(),
+    1,
   );
   checks.push(
     "Mission creation and mocked Instagram collection produce three candidates, with a mutual follow ranked first.",
+  );
+  checks.push(
+    "The main action adds a source; review and candidates expose no scores or ranking explanations.",
   );
   await page.screenshot({
     path: ".test-artifacts/review-desktop.png",
@@ -162,6 +184,11 @@ try {
     .waitFor();
   await page.getByRole("button", { name: /Possible match/ }).click();
   await page.getByRole("tab", { name: /Candidates/ }).click();
+  assert.equal(
+    await page.getByRole("columnheader", { name: "Priority" }).count(),
+    0,
+  );
+  assert.equal(await page.locator(".table-score").count(), 0);
   await page
     .getByRole("combobox", { name: "Filter candidates" })
     .selectOption("possible");
@@ -217,11 +244,10 @@ try {
     .click();
   await page.getByLabel("Mission name").fill("Second search");
   await page
+    .getByRole("dialog")
     .getByRole("button", { name: "Create mission", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Add candidates", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
   await page.getByLabel("Username or Instagram URL").fill("source");
   await page.getByRole("button", { name: "Look up account" }).click();
   await page.getByRole("button", { name: "Use saved results" }).click();
@@ -232,11 +258,11 @@ try {
   checks.push(
     "Dated cached collection results can populate another mission without any Instagram request.",
   );
-  await page
-    .getByRole("button", { name: "Add candidates", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Add source", exact: true }).click();
   await page.getByLabel("Username or Instagram URL").fill("casey");
-  await page.getByLabel("One account", { exact: false }).check();
+  await page
+    .getByRole("button", { name: "Add a single candidate instead" })
+    .click();
   await page.getByRole("button", { name: "Look up account" }).click();
   await page.getByRole("button", { name: "Add this candidate" }).click();
   await page.getByRole("tab", { name: /Candidates/ }).click();

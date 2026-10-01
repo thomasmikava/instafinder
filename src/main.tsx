@@ -8,10 +8,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleHelp,
   Compass,
   Database as DatabaseIcon,
-  Eye,
   Flag,
   Heart,
   Layers,
@@ -25,7 +23,6 @@ import {
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Undo2,
   Users,
@@ -57,31 +54,22 @@ const labels: Record<Decision, string> = {
   unlikely: "Probably not",
   possible: "Possible match",
 };
-const modes: { value: Mode; label: string; description: string }[] = [
-  {
-    value: "single",
-    label: "One account",
-    description: "Add this person directly",
-  },
+const modes: { value: Mode; label: string }[] = [
   {
     value: "both",
     label: "Followers + following",
-    description: "Collect both connections",
   },
   {
     value: "followers",
     label: "Followers",
-    description: "People following this source",
   },
   {
     value: "following",
     label: "Following",
-    description: "People this source follows",
   },
   {
     value: "commenters",
     label: "Commenters",
-    description: "All posts, including replies",
   },
 ];
 const date = (time: number) =>
@@ -187,9 +175,6 @@ function MissionDialog({
   const [name, setName] = useState(mission?.name || "");
   return (
     <Dialog title={mission ? "Rename mission" : "A new mission"} close={close}>
-      <p className="muted">
-        Give your search a name. You can add people in the next step.
-      </p>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -297,7 +282,10 @@ function AddDialog({
     (r) => r.status !== "completed" && r.checkpoint.stage !== "done",
   );
   return (
-    <Dialog title="Add candidates" close={close}>
+    <Dialog
+      title={mode === "single" && !isPost ? "Add candidate" : "Add source"}
+      close={close}
+    >
       {!resolved ? (
         <form
           onSubmit={async (e) => {
@@ -318,9 +306,6 @@ function AddDialog({
             }
           }}
         >
-          <p className="muted">
-            Start with an Instagram account, or a specific post or reel.
-          </p>
           <label className="field">
             Username or Instagram URL
             <input
@@ -334,14 +319,11 @@ function AddDialog({
           {isPost ? (
             <div className="notice">
               <Users size={18} />
-              <span>
-                Collect unique commenters and reply authors from this post or
-                reel.
-              </span>
+              <span>Commenters, including replies</span>
             </div>
-          ) : (
+          ) : mode !== "single" ? (
             <fieldset className="mode-grid">
-              <legend>What would you like to add?</legend>
+              <legend>Collect</legend>
               {modes.map((m) => (
                 <label
                   key={m.value}
@@ -355,18 +337,21 @@ function AddDialog({
                     onChange={() => setMode(m.value)}
                   />
                   <strong>{m.label}</strong>
-                  <small>{m.description}</small>
                 </label>
               ))}
             </fieldset>
+          ) : null}
+          {!isPost && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setMode(mode === "single" ? "both" : "single")}
+            >
+              {mode === "single"
+                ? "Collect from a source instead"
+                : "Add a single candidate instead"}
+            </button>
           )}
-          <p className="tiny muted">
-            {isPost || mode !== "single"
-              ? "The target account becomes a source for this mission. "
-              : ""}
-            Uses your Instagram login in Chrome. Requests follow your configured
-            delay.
-          </p>
           {busy && (
             <div className="notice">
               Pause the current collection before adding another account.
@@ -402,24 +387,11 @@ function AddDialog({
               <p>@{resolved.source.userName}</p>
             </div>
             <span className="pill">
-              {modes.find((m) => m.value === resolved.mode)?.label}
+              {resolved.mode === "single"
+                ? "One account"
+                : modes.find((m) => m.value === resolved.mode)?.label}
             </span>
           </div>
-          {resolved.mode === "single" ? (
-            <p className="muted">
-              Add this account to your candidate list. Its source status stays
-              separate.
-            </p>
-          ) : (
-            <p className="muted">
-              {resolved.post
-                ? "Collect commenters from this post/reel, including replies."
-                : resolved.mode === "commenters"
-                  ? "Scan all accessible posts and reels, including comment replies. This can take a while."
-                  : "Save these profiles and directional follow connections."}{" "}
-              You can review people as they arrive.
-            </p>
-          )}
           {completed && (
             <div className="cache-box">
               <div>
@@ -493,7 +465,7 @@ function AddDialog({
                 ? "Add this candidate"
                 : completed || interrupted
                   ? "Collect again"
-                  : "Start collecting"}
+                  : "Add source & collect"}
             </button>
           </div>
         </>
@@ -545,17 +517,11 @@ function Sources({
         <span className="summary-title">
           <Flag size={17} />
           {sources?.length || 0} {sources?.length === 1 ? "source" : "sources"}
-          <span className="summary-note">
-            The accounts that guide this mission
-          </span>
         </span>
         <ChevronRight size={17} />
       </summary>
       <div className="sources-body">
         <div className="sources-top">
-          <p className="muted">
-            Priority comes from known connections to these accounts.
-          </p>
           <label className="toggle">
             <input
               type="checkbox"
@@ -593,11 +559,7 @@ function Sources({
                 title="Demote source"
                 onClick={() =>
                   void setSource(mission.id, p.id, false)
-                    .then(() =>
-                      toast(
-                        "Source removed. Candidate decisions are preserved.",
-                      ),
-                    )
+                    .then(() => toast("Source removed."))
                     .catch((err) => toast(errorText(err)))
                 }
               >
@@ -607,7 +569,7 @@ function Sources({
           ))}
         </div>
         <label className="field compact">
-          Add anyone already saved as a source
+          Saved profiles
           <input
             type="search"
             value={query}
@@ -628,7 +590,7 @@ function Sources({
                       .then(() => {
                         setQuery("");
                         toast(`@${p.userName} is now a source.`, {
-                          label: "Collect connections",
+                          label: "Collect",
                           fn: () => collect(p),
                         });
                       })
@@ -746,12 +708,6 @@ function Review({
     <section className="review-layout">
       <div className="review-main">
         <div className="review-heading">
-          <div>
-            <h2>One person at a time.</h2>
-            <p className="muted">
-              Follow your instinct. You can always change your mind.
-            </p>
-          </div>
           <button
             className="button small ghost"
             disabled={!undo}
@@ -766,11 +722,6 @@ function Review({
             <article className="review-card">
               <div className="photo-wrap">
                 <Avatar profile={card.profile} large />
-                <span className="score-badge">
-                  <Sparkles size={15} />
-                  {card.score} connection{" "}
-                  {card.score === 1 ? "point" : "points"}
-                </span>
                 <button
                   className={`source-badge ${source ? "active" : ""}`}
                   title={source ? "Demote source" : "Promote to source"}
@@ -781,7 +732,7 @@ function Review({
                         () =>
                           !source &&
                           toast(`@${card.profile.userName} is now a source.`, {
-                            label: "Collect connections",
+                            label: "Collect",
                             fn: () => collect(card.profile),
                           }),
                       )
@@ -817,7 +768,7 @@ function Review({
                 }
               >
                 <RefreshCw size={12} />
-                Refresh profile / photo
+                Refresh photo
               </button>
             </article>
             <div className="decision-grid">
@@ -849,10 +800,6 @@ function Review({
                 <kbd>3</kbd>
               </button>
             </div>
-            <p className="review-footer">
-              <ShieldCheck size={14} />
-              Your choices stay in this mission.
-            </p>
           </>
         ) : (
           <div className="empty review-empty">
@@ -862,13 +809,8 @@ function Review({
             <h2>
               {top?.count
                 ? "Finding your next candidate…"
-                : "You’re all caught up."}
+                : "Nothing to review."}
             </h2>
-            <p>
-              {top?.count
-                ? "Your next card is on its way."
-                : "Add more candidates or clear a decision in the candidate list to review again."}
-            </p>
             {undo && (
               <button
                 className="button secondary"
@@ -881,45 +823,6 @@ function Review({
           </div>
         )}
       </div>
-      <aside className="review-notes">
-        <span className="eyebrow">A LITTLE CONTEXT</span>
-        <h3>
-          Closer connections,
-          <br />
-          shown first.
-        </h3>
-        <p>
-          We prioritize people connected to your mission’s sources, using the
-          data you’ve collected.
-        </p>
-        <div className="scoring-row">
-          <span>Follows a source</span>
-          <strong>+1</strong>
-        </div>
-        <div className="scoring-row">
-          <span>Followed by a source</span>
-          <strong>+1</strong>
-        </div>
-        <div className="scoring-row">
-          <span>Distinct post commented on</span>
-          <strong>+1</strong>
-        </div>
-        <p className="tiny">
-          Mutual follows count twice. Repeated comments on a post count once.
-          Account follower totals don’t affect priority.
-        </p>
-        <div className="queue-total">
-          <span className="big-number">{number(top?.count || 0)}</span>
-          <span>people left to review</span>
-        </div>
-        <div className="tip">
-          <CircleHelp size={17} />
-          <p>
-            Use <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd> to choose.{" "}
-            <kbd>⌘/Ctrl Z</kbd> undoes your last choice.
-          </p>
-        </div>
-      </aside>
     </section>
   );
 }
@@ -979,7 +882,6 @@ function CandidateList({
           <thead>
             <tr>
               <th>Person</th>
-              <th>Priority</th>
               <th>Your decision</th>
               <th>Source</th>
               <th>
@@ -1005,12 +907,7 @@ function CandidateList({
                       </div>
                     </div>
                   </td>
-                  <td>
-                    <span className="table-score">
-                      <Sparkles size={12} />
-                      {c.score}
-                    </span>
-                  </td>
+
                   <td>
                     <select
                       className={`decision-select ${c.decision}`}
@@ -1041,7 +938,7 @@ function CandidateList({
                           .then(() => {
                             if (!isSource)
                               toast(`@${c.profile.userName} is now a source.`, {
-                                label: "Collect connections",
+                                label: "Collect",
                                 fn: () => collect(c.profile),
                               });
                           })
@@ -1071,12 +968,9 @@ function CandidateList({
       {!data?.rows.length && (
         <div className="empty small-empty">
           <Search size={28} />
-          <h3>No candidates here yet.</h3>
-          <p>
-            {search || filter !== "all"
-              ? "Try another name or outcome filter."
-              : "Add an account or collect from a source to start your search."}
-          </p>
+          <h3>
+            {search || filter !== "all" ? "No matches." : "No candidates yet."}
+          </h3>
         </div>
       )}
       <div className="pagination">
@@ -1141,10 +1035,6 @@ function HistoryDialog({
   const count = useLiveQuery(() => db.runs.count());
   return (
     <Dialog title="Collection history" close={close} wide>
-      <p className="muted">
-        Saved across your workspace. “Completed” means the requested traversal
-        finished; restricted or missing data is marked partial.
-      </p>
       <div className="history-list">
         {history?.map((run) => (
           <div className="history-row" key={run.id}>
@@ -1254,10 +1144,6 @@ function SettingsDialog({
     <Dialog title="Workspace settings" close={close}>
       <div className="settings-section">
         <h3>Collection pace</h3>
-        <p className="muted">
-          Minimum time between every Instagram request. Longer delays mean
-          slower collection.
-        </p>
         <form
           className="delay-form"
           onSubmit={async (e) => {
@@ -1302,15 +1188,11 @@ function SettingsDialog({
           {usage !== undefined
             ? `${(usage / 1024 / 1024).toFixed(1)} MB used. `
             : ""}
-          No application storage cap. Available disk space still applies.
         </p>
       </div>
       <div className="settings-section">
         <h3>Backup & restore</h3>
-        <p className="muted">
-          Keep a copy of your missions, decisions, profiles, and collection
-          history. Removing the extension removes its local data.
-        </p>
+        <p className="muted">Removing the extension deletes its local data.</p>
         <div className="backup-actions">
           <button
             className="button secondary"
@@ -1401,13 +1283,6 @@ function SettingsDialog({
             </div>
           </div>
         )}
-      </div>
-      <div className="notice">
-        <ShieldCheck size={18} />
-        <span>
-          Local by design. Authentication cookies are never stored in your
-          database or backups. Collection requires this app tab to remain open.
-        </span>
       </div>
     </Dialog>
   );
@@ -1508,9 +1383,7 @@ function App() {
           <span className="brand-mark">
             <Compass size={23} />
           </span>
-          <span>
-            InstaFinder<small>A little closer.</small>
-          </span>
+          <span>InstaFinder</span>
         </a>
         <div className="sidebar-heading">
           <span>YOUR MISSIONS</span>
@@ -1546,13 +1419,6 @@ function App() {
           New mission
         </button>
         <div className="sidebar-bottom">
-          <div className="privacy-note">
-            <ShieldCheck size={19} />
-            <div>
-              <strong>Your own workspace</strong>
-              <p>Private. Local. Yours.</p>
-            </div>
-          </div>
           <button className="sidebar-link" onClick={() => setDialog("history")}>
             <DatabaseIcon size={17} />
             Collection history
@@ -1564,20 +1430,9 @@ function App() {
             <SettingsIcon size={17} />
             Settings & backups
           </button>
-          <span className="version">INSTAFINDER · 0.1.0</span>
         </div>
       </aside>
       <main className="main">
-        <header className="topbar">
-          <span>
-            <Compass size={15} />
-            {mission ? "Your workspace / Mission" : "Your workspace"}
-          </span>
-          <span className="local-indicator">
-            <span />
-            Saved locally
-          </span>
-        </header>
         {activeRun && (
           <div className="collection-banner" role="status">
             <LoaderCircle size={17} className="spin" />
@@ -1602,11 +1457,7 @@ function App() {
             <>
               <div className="mission-heading">
                 <div>
-                  <span className="eyebrow">YOUR CURRENT SEARCH</span>
                   <h1>{mission.name}</h1>
-                  <p className="muted">
-                    A familiar face might be one connection away.
-                  </p>
                 </div>
                 <div className="heading-actions">
                   <button
@@ -1634,37 +1485,21 @@ function App() {
                     }}
                   >
                     <Plus size={17} />
-                    Add candidates
+                    Add source
                   </button>
-                </div>
-              </div>
-              <div className="mission-stats">
-                <div>
-                  <Users size={17} />
-                  <strong>{number(counts?.total || 0)}</strong>
-                  <span>candidates</span>
-                </div>
-                <div>
-                  <Eye size={17} />
-                  <strong>{number(counts?.unreviewed || 0)}</strong>
-                  <span>to review</span>
-                </div>
-                <div>
-                  <Heart size={17} />
-                  <strong>{number(counts?.possible || 0)}</strong>
-                  <span>possible matches</span>
                 </div>
               </div>
               <Sources mission={mission} toast={toast} collect={collect} />
               <div className="view-tabs" role="tablist">
                 <button
                   role="tab"
+                  aria-label="Review"
                   aria-selected={tab === "review"}
                   className={tab === "review" ? "active" : ""}
                   onClick={() => setTab("review")}
                 >
                   <Compass size={17} />
-                  Review
+                  Review<span>{number(counts?.unreviewed || 0)}</span>
                 </button>
                 <button
                   role="tab"
@@ -1701,40 +1536,14 @@ function App() {
               <span className="welcome-symbol">
                 <Compass size={50} strokeWidth={1.3} />
               </span>
-              <span className="eyebrow">
-                A NAME. A FEW CONNECTIONS. A FAMILIAR FACE.
-              </span>
-              <h1>
-                Every search starts
-                <br />
-                with a mission.
-              </h1>
-              <p>
-                Gather Instagram accounts, follow the connections,
-                <br />
-                and find the person you have in mind.
-              </p>
+              <h1>No missions yet.</h1>
               <button
                 className="button primary"
                 onClick={() => setDialog("mission")}
               >
                 <Plus size={18} />
-                Create your first mission
+                Create mission
               </button>
-              <div className="welcome-steps">
-                <span>
-                  <span>01</span>Name your mission
-                </span>
-                <span>
-                  <span>02</span>Add a source
-                </span>
-                <span>
-                  <span>03</span>Review one at a time
-                </span>
-              </div>
-              <p className="tiny">
-                <ShieldCheck size={14} /> Everything stays on this device.
-              </p>
             </div>
           )}
         </div>

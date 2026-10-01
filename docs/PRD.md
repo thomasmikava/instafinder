@@ -28,15 +28,15 @@ InstaFinder is a local, single-user Chrome extension for finding a person among 
 
 ## Review
 
-- Show one unreviewed person at a time: photo, username, display name, connection score, and a link opening Instagram in a new tab.
+- Show one unreviewed person at a time: photo, username, display name, and a link opening Instagram in a new tab.
 - Offer Not the person, Probably not, and Possible match, with keyboard shortcuts and undo.
-- Show highest-scoring candidates first; keep the visible card stable until an action.
+- Rank candidates internally; keep the visible card stable until an action. Do not show scores or explanations of ranking in the interface.
 - Provide a searchable, paginated candidate list with outcome/unreviewed filters and controls to change or clear a decision.
 
 ## Local data and usability
 
 - Use React and IndexedDB with Chrome's unlimitedStorage permission; no 5/10/50 MB application limit.
-- Use a clean responsive light interface, useful empty states, compact collection progress, and placeholders/explicit refresh for missing photos.
+- Use a minimal responsive light interface with **Add source** as the main action. Keep single-candidate addition secondary; omit taglines, tutorial copy, and redundant statistics. Retain compact progress, empty states, and photo refresh.
 - Provide versioned full-data backup and restore in Settings. Removing the extension removes its local data, so backups matter.
 - Install/build with npm; use as an unpacked Chrome extension. No Node version pin or enforced version check, no separate server or SQLite installation.
 
