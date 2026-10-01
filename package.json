@@ -1,0 +1,33 @@
+{
+  "name": "instafinder",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local Chrome extension for mission-based Instagram candidate review",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "test": "node scripts/test.mjs",
+    "test:browser": "npm run build && node scripts/browser-test.mjs",
+    "format": "prettier --write src tests scripts public docs README.md package.json tsconfig.json"
+  },
+  "dependencies": {
+    "dexie": "^4.4.6",
+    "dexie-react-hooks": "^4.4.0",
+    "lossless-json": "^4.3.1",
+    "lucide-react": "^1.49.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "fake-indexeddb": "^6.2.5",
+    "playwright": "^1.63.0",
+    "prettier": "^3.9.9",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "InstaFinder",
+  "version": "0.1.0",
+  "description": "Local Instagram collections and mission-based candidate review.",
+  "permissions": ["cookies", "unlimitedStorage"],
+  "host_permissions": [
+    "https://www.instagram.com/*",
+    "https://i.instagram.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open InstaFinder",
+    "default_icon": {
+      "32": "icons/32.png"
+    }
+  },
+  "options_page": "app.html",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' https: data:; connect-src 'self' https://www.instagram.com https://i.instagram.com"
+  },
+  "icons": {
+    "32": "icons/32.png",
+    "128": "icons/128.png"
+  }
+}

@@ -1,0 +1,1830 @@
+import React, { useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { useLiveQuery } from "dexie-react-hooks";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ArrowUpRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleHelp,
+  Compass,
+  Database as DatabaseIcon,
+  Eye,
+  Flag,
+  Heart,
+  Layers,
+  List,
+  LoaderCircle,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings as SettingsIcon,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Undo2,
+  Users,
+  X,
+} from "lucide-react";
+import { db, preferences } from "./db";
+import {
+  candidatePage,
+  createMission,
+  decide,
+  deleteMission,
+  includeSources,
+  setSource,
+} from "./data";
+import {
+  download,
+  exportBackup,
+  restoreBackup,
+  validateBackup,
+  type Backup,
+} from "./backup";
+import { parseInput } from "./instagram";
+import { runner } from "./runner";
+import type { Decision, Mission, Mode, Profile, Resolved, Run } from "./types";
+import "./styles.css";
+const labels: Record<Decision, string> = {
+  unreviewed: "Unreviewed",
+  no: "Not the person",
+  unlikely: "Probably not",
+  possible: "Possible match",
+};
+const modes: { value: Mode; label: string; description: string }[] = [
+  {
+    value: "single",
+    label: "One account",
+    description: "Add this person directly",
+  },
+  {
+    value: "both",
+    label: "Followers + following",
+    description: "Collect both connections",
+  },
+  {
+    value: "followers",
+    label: "Followers",
+    description: "People following this source",
+  },
+  {
+    value: "following",
+    label: "Following",
+    description: "People this source follows",
+  },
+  {
+    value: "commenters",
+    label: "Commenters",
+    description: "All posts, including replies",
+  },
+];
+const date = (time: number) =>
+  new Date(time).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+const number = (n: number) => n.toLocaleString();
+const errorText = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+type Toast = (
+  message: string,
+  action?: { label: string; fn: () => void },
+) => void;
+function Avatar({
+  profile,
+  large = false,
+}: {
+  profile?: Profile;
+  large?: boolean;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [profile?.avatarUrl, profile?.updatedAt]);
+  return (
+    <div className={large ? "avatar avatar-large" : "avatar"}>
+      {profile?.avatarUrl && !failed ? (
+        <img
+          src={profile.avatarUrl}
+          alt={profile.fullName || profile.userName}
+          onError={() => setFailed(true)}
+          referrerPolicy="no-referrer"
+          loading={large ? "eager" : "lazy"}
+        />
+      ) : (
+        <span>
+          {(profile?.fullName || profile?.userName || "?")
+            .slice(0, 2)
+            .toUpperCase()}
+        </span>
+      )}
+    </div>
+  );
+}
+function Dialog({
+  title,
+  children,
+  close,
+  wide = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  close: () => void;
+  wide?: boolean;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className={`dialog ${wide ? "wide" : ""}`}
+      onCancel={(e) => {
+        e.preventDefault();
+        close();
+      }}
+      onClick={(e) => {
+        if (
+          e.target === e.currentTarget &&
+          (e.clientX < e.currentTarget.getBoundingClientRect().left ||
+            e.clientX > e.currentTarget.getBoundingClientRect().right ||
+            e.clientY < e.currentTarget.getBoundingClientRect().top ||
+            e.clientY > e.currentTarget.getBoundingClientRect().bottom)
+        )
+          close();
+      }}
+    >
+      <div className="dialog-heading">
+        <h2>{title}</h2>
+        <button
+          className="icon-button"
+          aria-label="Close dialog"
+          onClick={close}
+        >
+          <X size={20} />
+        </button>
+      </div>
+      {children}
+    </dialog>
+  );
+}
+function MissionDialog({
+  mission,
+  close,
+  onSave,
+  toast,
+}: {
+  mission?: Mission;
+  close: () => void;
+  onSave: (id: string) => void;
+  toast: Toast;
+}) {
+  const [name, setName] = useState(mission?.name || "");
+  return (
+    <Dialog title={mission ? "Rename mission" : "A new mission"} close={close}>
+      <p className="muted">
+        Give your search a name. You can add people in the next step.
+      </p>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            if (mission) {
+              await db.missions.update(mission.id, { name: name.trim() });
+              onSave(mission.id);
+            } else onSave((await createMission(name)).id);
+            close();
+          } catch (error) {
+            toast(errorText(error));
+          }
+        }}
+      >
+        <label className="field">
+          Mission name
+          <input
+            autoFocus
+            required
+            maxLength={100}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Someone from the opening night"
+          />
+        </label>
+        <div className="dialog-actions">
+          <button type="button" className="button secondary" onClick={close}>
+            Cancel
+          </button>
+          <button className="button primary" disabled={!name.trim()}>
+            {mission ? "Save name" : "Create mission"}
+            <ArrowUpRight size={16} />
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+function AddDialog({
+  missionId,
+  initial,
+  close,
+  toast,
+  busy,
+}: {
+  missionId: string;
+  initial?: { value: string; mode: Mode };
+  close: () => void;
+  toast: Toast;
+  busy: boolean;
+}) {
+  const [value, setValue] = useState(initial?.value || "");
+  const [mode, setMode] = useState<Mode>(initial?.mode || "both");
+  const [resolved, setResolved] = useState<Resolved>();
+  const [previous, setPrevious] = useState<Run[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const cacheCounts = useLiveQuery(
+    async () =>
+      Object.fromEntries(
+        await Promise.all(
+          previous.map(async (r) => [
+            r.id,
+            new Set(
+              (await db.results.where("runId").equals(r.id).toArray()).map(
+                (p) => p.profileId,
+              ),
+            ).size,
+          ]),
+        ),
+      ),
+    [previous],
+  );
+  let isPost = false;
+  try {
+    isPost = parseInput(value).type === "post";
+  } catch {
+    /* Validate on submit. */
+  }
+  const launch = async (reuse?: Run, resume = false) => {
+    if (!resolved) return;
+    setLoading(true);
+    setError("");
+    try {
+      const run = reuse || (await runner.create(resolved, missionId));
+      if (reuse) await runner.attach(run.id, missionId);
+      close();
+      toast(
+        reuse && !resume
+          ? "Saved candidates added to this mission."
+          : resolved.mode === "single"
+            ? "Candidate added."
+            : "Collection started. Keep this app tab open.",
+      );
+      if ((!reuse || resume) && run.status !== "completed")
+        void runner.run(run.id).catch((e) => toast(errorText(e)));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+  const completed = previous.find((r) => r.status === "completed");
+  const interrupted = previous.find(
+    (r) => r.status !== "completed" && r.checkpoint.stage !== "done",
+  );
+  return (
+    <Dialog title="Add candidates" close={close}>
+      {!resolved ? (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setLoading(true);
+            setError("");
+            try {
+              const result = await runner.resolve(
+                value,
+                isPost ? "commenters" : mode,
+              );
+              setResolved(result);
+              setPrevious(await runner.previous(result));
+            } catch (err) {
+              setError(errorText(err));
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
+          <p className="muted">
+            Start with an Instagram account, or a specific post or reel.
+          </p>
+          <label className="field">
+            Username or Instagram URL
+            <input
+              autoFocus
+              required
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="@username or https://instagram.com/…"
+            />
+          </label>
+          {isPost ? (
+            <div className="notice">
+              <Users size={18} />
+              <span>
+                Collect unique commenters and reply authors from this post or
+                reel.
+              </span>
+            </div>
+          ) : (
+            <fieldset className="mode-grid">
+              <legend>What would you like to add?</legend>
+              {modes.map((m) => (
+                <label
+                  key={m.value}
+                  className={`mode-option ${mode === m.value ? "selected" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="collection-mode"
+                    value={m.value}
+                    checked={mode === m.value}
+                    onChange={() => setMode(m.value)}
+                  />
+                  <strong>{m.label}</strong>
+                  <small>{m.description}</small>
+                </label>
+              ))}
+            </fieldset>
+          )}
+          <p className="tiny muted">
+            {isPost || mode !== "single"
+              ? "The target account becomes a source for this mission. "
+              : ""}
+            Uses your Instagram login in Chrome. Requests follow your configured
+            delay.
+          </p>
+          {busy && (
+            <div className="notice">
+              Pause the current collection before adding another account.
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          <div className="dialog-actions">
+            <button type="button" className="button secondary" onClick={close}>
+              Cancel
+            </button>
+            <button className="button primary" disabled={loading || busy}>
+              {loading ? (
+                <LoaderCircle className="spin" size={17} />
+              ) : (
+                <Search size={17} />
+              )}
+              Look up account
+            </button>
+          </div>
+        </form>
+      ) : (
+        <>
+          <div className="profile-preview">
+            <Avatar profile={resolved.source} />
+            <div>
+              <strong>
+                {resolved.source.fullName || resolved.source.userName}
+              </strong>
+              <p>@{resolved.source.userName}</p>
+            </div>
+            <span className="pill">
+              {modes.find((m) => m.value === resolved.mode)?.label}
+            </span>
+          </div>
+          {resolved.mode === "single" ? (
+            <p className="muted">
+              Add this account to your candidate list. Its source status stays
+              separate.
+            </p>
+          ) : (
+            <p className="muted">
+              {resolved.post
+                ? "Collect commenters from this post/reel, including replies."
+                : resolved.mode === "commenters"
+                  ? "Scan all accessible posts and reels, including comment replies. This can take a while."
+                  : "Save these profiles and directional follow connections."}{" "}
+              You can review people as they arrive.
+            </p>
+          )}
+          {completed && (
+            <div className="cache-box">
+              <div>
+                <ShieldCheck size={20} />
+                <strong>Saved results available</strong>
+              </div>
+              <p>
+                {number(cacheCounts?.[completed.id] || 0)} unique profiles ·
+                Collected {date(completed.completedAt || completed.updatedAt)}
+              </p>
+              <button
+                className="button secondary"
+                disabled={loading}
+                onClick={() => void launch(completed)}
+              >
+                Use saved results
+              </button>
+            </div>
+          )}
+          {interrupted && (
+            <div className="cache-box">
+              <div>
+                <Pause size={20} />
+                <strong>Previous collection is incomplete</strong>
+              </div>
+              <p>
+                {number(cacheCounts?.[interrupted.id] || 0)} profiles saved ·{" "}
+                {interrupted.reason || labels.unreviewed}
+              </p>
+              <button
+                className="button secondary"
+                disabled={
+                  loading ||
+                  (!!interrupted.retryAt && interrupted.retryAt > Date.now())
+                }
+                onClick={() => void launch(interrupted, true)}
+              >
+                Resume saved progress
+              </button>
+              {interrupted.retryAt && interrupted.retryAt > Date.now() && (
+                <p>Resume after {date(interrupted.retryAt)}</p>
+              )}
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          <div className="dialog-actions">
+            <button
+              className="button secondary"
+              onClick={() => {
+                setResolved(undefined);
+                setError("");
+              }}
+            >
+              Back
+            </button>
+            <button
+              className="button primary"
+              disabled={loading || busy}
+              onClick={() => void launch()}
+            >
+              {loading ? (
+                <LoaderCircle className="spin" size={17} />
+              ) : (
+                <Plus size={17} />
+              )}{" "}
+              {resolved.mode === "single"
+                ? "Add this candidate"
+                : completed || interrupted
+                  ? "Collect again"
+                  : "Start collecting"}
+            </button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  );
+}
+function Sources({
+  mission,
+  toast,
+  collect,
+}: {
+  mission: Mission;
+  toast: Toast;
+  collect: (p: Profile) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [include, setInclude] = useState(mission.includeSources);
+  useEffect(
+    () => setInclude(mission.includeSources),
+    [mission.id, mission.includeSources],
+  );
+  const sources = useLiveQuery(async () => {
+    const rows = await db.sources
+      .where("missionId")
+      .equals(mission.id)
+      .toArray();
+    return (await db.profiles.bulkGet(rows.map((s) => s.profileId))).filter(
+      (p): p is Profile => !!p,
+    );
+  }, [mission.id]);
+  const library = useLiveQuery(
+    async () =>
+      query.trim()
+        ? db.profiles
+            .filter((p) =>
+              `${p.userName} ${p.fullName}`
+                .toLowerCase()
+                .includes(query.toLowerCase().trim()),
+            )
+            .limit(8)
+            .toArray()
+        : [],
+    [query],
+  );
+  return (
+    <details className="sources-panel">
+      <summary>
+        <span className="summary-title">
+          <Flag size={17} />
+          {sources?.length || 0} {sources?.length === 1 ? "source" : "sources"}
+          <span className="summary-note">
+            The accounts that guide this mission
+          </span>
+        </span>
+        <ChevronRight size={17} />
+      </summary>
+      <div className="sources-body">
+        <div className="sources-top">
+          <p className="muted">
+            Priority comes from known connections to these accounts.
+          </p>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={include}
+              onChange={(e) => {
+                const value = e.target.checked;
+                setInclude(value);
+                void includeSources(mission.id, value).catch((err) => {
+                  setInclude(mission.includeSources);
+                  toast(errorText(err));
+                });
+              }}
+            />
+            Include sources as candidates
+          </label>
+        </div>
+        <div className="source-list">
+          {sources?.map((p) => (
+            <div className="source-row" key={p.id}>
+              <Avatar profile={p} />
+              <a href={p.profileUrl} target="_blank" rel="noreferrer">
+                @{p.userName}
+                <ArrowUpRight size={13} />
+              </a>
+              <button
+                className="button small secondary"
+                onClick={() => collect(p)}
+              >
+                <RefreshCw size={13} />
+                Collect
+              </button>
+              <button
+                className="icon-button"
+                aria-label={`Demote ${p.userName}`}
+                title="Demote source"
+                onClick={() =>
+                  void setSource(mission.id, p.id, false)
+                    .then(() =>
+                      toast(
+                        "Source removed. Candidate decisions are preserved.",
+                      ),
+                    )
+                    .catch((err) => toast(errorText(err)))
+                }
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <label className="field compact">
+          Add anyone already saved as a source
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search saved profiles…"
+          />
+        </label>
+        {library && query && (
+          <div className="library-results">
+            {library.length ? (
+              library.map((p) => (
+                <button
+                  className="library-row"
+                  key={p.id}
+                  disabled={sources?.some((s) => s.id === p.id)}
+                  onClick={() =>
+                    void setSource(mission.id, p.id, true)
+                      .then(() => {
+                        setQuery("");
+                        toast(`@${p.userName} is now a source.`, {
+                          label: "Collect connections",
+                          fn: () => collect(p),
+                        });
+                      })
+                      .catch((err) => toast(errorText(err)))
+                  }
+                >
+                  <Avatar profile={p} />
+                  <span>
+                    <strong>@{p.userName}</strong>
+                    <small>{p.fullName}</small>
+                  </span>
+                  <Plus size={16} />
+                </button>
+              ))
+            ) : (
+              <p className="muted">No saved profiles match.</p>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+function Review({
+  mission,
+  toast,
+  collect,
+  busy,
+  modalOpen,
+  active,
+}: {
+  mission: Mission;
+  toast: Toast;
+  collect: (p: Profile) => void;
+  busy: boolean;
+  modalOpen: boolean;
+  active: boolean;
+}) {
+  const top = useLiveQuery(
+    () => candidatePage(mission.id, "unreviewed", "", 0, 1),
+    [mission.id],
+  );
+  const [pinnedId, setPinnedId] = useState<string>();
+  const [undo, setUndo] = useState<{ id: string; decision: Decision }>();
+  const card = useLiveQuery(async () => {
+    if (!pinnedId) return undefined;
+    const candidate = await db.candidates.get([mission.id, pinnedId]);
+    const profile = await db.profiles.get(pinnedId);
+    return candidate && profile ? { ...candidate, profile } : null;
+  }, [mission.id, pinnedId]);
+  const source = useLiveQuery(
+    () => (pinnedId ? db.sources.get([mission.id, pinnedId]) : undefined),
+    [mission.id, pinnedId],
+  );
+  useEffect(() => {
+    setPinnedId(undefined);
+    setUndo(undefined);
+  }, [mission.id]);
+  useEffect(() => {
+    if (!pinnedId && top?.rows[0]) setPinnedId(top.rows[0].profileId);
+  }, [pinnedId, top]);
+  useEffect(() => {
+    if (
+      card === null ||
+      (card && (card.decision !== "unreviewed" || !card.visible))
+    )
+      setPinnedId(undefined);
+  }, [card]);
+  const action = async (decision: Decision) => {
+    if (!card || card.decision !== "unreviewed") return;
+    try {
+      await decide(mission.id, card.profileId, decision);
+      setUndo({ id: card.profileId, decision: card.decision });
+      setPinnedId(undefined);
+    } catch (e) {
+      toast(errorText(e));
+    }
+  };
+  const reverse = async () => {
+    if (!undo) return;
+    await decide(mission.id, undo.id, undo.decision);
+    setPinnedId(undo.id);
+    setUndo(undefined);
+  };
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => {
+      if (
+        !active ||
+        modalOpen ||
+        (e.target as HTMLElement)?.closest(
+          'input, textarea, select, [contenteditable="true"]',
+        )
+      )
+        return;
+      if (["1", "2", "3"].includes(e.key)) {
+        e.preventDefault();
+        void action(
+          (
+            { "1": "no", "2": "unlikely", "3": "possible" } as Record<
+              string,
+              Decision
+            >
+          )[e.key],
+        );
+      }
+      if (e.key.toLowerCase() === "z" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        void reverse();
+      }
+    };
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  });
+  return (
+    <section className="review-layout">
+      <div className="review-main">
+        <div className="review-heading">
+          <div>
+            <h2>One person at a time.</h2>
+            <p className="muted">
+              Follow your instinct. You can always change your mind.
+            </p>
+          </div>
+          <button
+            className="button small ghost"
+            disabled={!undo}
+            onClick={() => void reverse()}
+          >
+            <Undo2 size={15} />
+            Undo
+          </button>
+        </div>
+        {card && card.visible && card.decision === "unreviewed" ? (
+          <>
+            <article className="review-card">
+              <div className="photo-wrap">
+                <Avatar profile={card.profile} large />
+                <span className="score-badge">
+                  <Sparkles size={15} />
+                  {card.score} connection{" "}
+                  {card.score === 1 ? "point" : "points"}
+                </span>
+                <button
+                  className={`source-badge ${source ? "active" : ""}`}
+                  title={source ? "Demote source" : "Promote to source"}
+                  aria-label={source ? "Demote source" : "Promote to source"}
+                  onClick={() =>
+                    void setSource(mission.id, card.profileId, !source)
+                      .then(
+                        () =>
+                          !source &&
+                          toast(`@${card.profile.userName} is now a source.`, {
+                            label: "Collect connections",
+                            fn: () => collect(card.profile),
+                          }),
+                      )
+                      .catch((e) => toast(errorText(e)))
+                  }
+                >
+                  <Flag size={16} />
+                </button>
+              </div>
+              <div className="card-copy">
+                <div>
+                  <h2>{card.profile.fullName || card.profile.userName}</h2>
+                  <p>@{card.profile.userName}</p>
+                </div>
+                <a
+                  className="icon-button instagram-link"
+                  href={card.profile.profileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open Instagram profile"
+                >
+                  <ArrowUpRight size={21} />
+                </a>
+              </div>
+              <button
+                className="refresh-photo"
+                disabled={busy}
+                onClick={() =>
+                  void runner
+                    .refreshProfile(card.profile.userName)
+                    .then(() => toast("Profile refreshed."))
+                    .catch((e) => toast(errorText(e)))
+                }
+              >
+                <RefreshCw size={12} />
+                Refresh profile / photo
+              </button>
+            </article>
+            <div className="decision-grid">
+              <button className="decision no" onClick={() => void action("no")}>
+                <span className="decision-icon">
+                  <X size={24} />
+                </span>
+                <strong>Not the person</strong>
+                <kbd>1</kbd>
+              </button>
+              <button
+                className="decision unlikely"
+                onClick={() => void action("unlikely")}
+              >
+                <span className="decision-icon">
+                  <MoreHorizontal size={24} />
+                </span>
+                <strong>Probably not</strong>
+                <kbd>2</kbd>
+              </button>
+              <button
+                className="decision possible"
+                onClick={() => void action("possible")}
+              >
+                <span className="decision-icon">
+                  <Heart size={22} />
+                </span>
+                <strong>Possible match</strong>
+                <kbd>3</kbd>
+              </button>
+            </div>
+            <p className="review-footer">
+              <ShieldCheck size={14} />
+              Your choices stay in this mission.
+            </p>
+          </>
+        ) : (
+          <div className="empty review-empty">
+            <div className="empty-icon">
+              <Check size={32} />
+            </div>
+            <h2>
+              {top?.count
+                ? "Finding your next candidate…"
+                : "You’re all caught up."}
+            </h2>
+            <p>
+              {top?.count
+                ? "Your next card is on its way."
+                : "Add more candidates or clear a decision in the candidate list to review again."}
+            </p>
+            {undo && (
+              <button
+                className="button secondary"
+                onClick={() => void reverse()}
+              >
+                <Undo2 size={16} />
+                Undo last choice
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <aside className="review-notes">
+        <span className="eyebrow">A LITTLE CONTEXT</span>
+        <h3>
+          Closer connections,
+          <br />
+          shown first.
+        </h3>
+        <p>
+          We prioritize people connected to your mission’s sources, using the
+          data you’ve collected.
+        </p>
+        <div className="scoring-row">
+          <span>Follows a source</span>
+          <strong>+1</strong>
+        </div>
+        <div className="scoring-row">
+          <span>Followed by a source</span>
+          <strong>+1</strong>
+        </div>
+        <div className="scoring-row">
+          <span>Distinct post commented on</span>
+          <strong>+1</strong>
+        </div>
+        <p className="tiny">
+          Mutual follows count twice. Repeated comments on a post count once.
+          Account follower totals don’t affect priority.
+        </p>
+        <div className="queue-total">
+          <span className="big-number">{number(top?.count || 0)}</span>
+          <span>people left to review</span>
+        </div>
+        <div className="tip">
+          <CircleHelp size={17} />
+          <p>
+            Use <kbd>1</kbd>, <kbd>2</kbd>, <kbd>3</kbd> to choose.{" "}
+            <kbd>⌘/Ctrl Z</kbd> undoes your last choice.
+          </p>
+        </div>
+      </aside>
+    </section>
+  );
+}
+function CandidateList({
+  mission,
+  toast,
+  collect,
+}: {
+  mission: Mission;
+  toast: Toast;
+  collect: (p: Profile) => void;
+}) {
+  const [filter, setFilter] = useState<Decision | "all">("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const data = useLiveQuery(
+    () => candidatePage(mission.id, filter, search, page),
+    [mission.id, filter, search, page],
+  );
+  const sources = useLiveQuery(
+    () => db.sources.where("missionId").equals(mission.id).toArray(),
+    [mission.id],
+  );
+  useEffect(() => setPage(0), [mission.id, filter, search]);
+  useEffect(() => {
+    if (data && page > 0 && !data.rows.length) setPage((p) => p - 1);
+  }, [data, page]);
+  return (
+    <section className="list-panel">
+      <div className="list-toolbar">
+        <label className="search-field">
+          <Search size={17} />
+          <input
+            type="search"
+            aria-label="Search candidates"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name or username…"
+          />
+        </label>
+        <select
+          aria-label="Filter candidates"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as Decision | "all")}
+        >
+          <option value="all">All outcomes</option>
+          {Object.entries(labels).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <span className="muted tiny">{number(data?.count || 0)} people</span>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th>Priority</th>
+              <th>Your decision</th>
+              <th>Source</th>
+              <th>
+                <span className="sr-only">Instagram</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {data?.rows.map((c) => {
+              const isSource = sources?.some(
+                (s) => s.profileId === c.profileId,
+              );
+              return (
+                <tr key={c.profileId}>
+                  <td>
+                    <div className="person-cell">
+                      <Avatar profile={c.profile} />
+                      <div>
+                        <strong>
+                          {c.profile.fullName || c.profile.userName}
+                        </strong>
+                        <span>@{c.profile.userName}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="table-score">
+                      <Sparkles size={12} />
+                      {c.score}
+                    </span>
+                  </td>
+                  <td>
+                    <select
+                      className={`decision-select ${c.decision}`}
+                      aria-label={`Decision for ${c.profile.userName}`}
+                      value={c.decision}
+                      onChange={(e) =>
+                        void decide(
+                          mission.id,
+                          c.profileId,
+                          e.target.value as Decision,
+                        ).catch((err) => toast(errorText(err)))
+                      }
+                    >
+                      {Object.entries(labels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    <button
+                      className={`icon-button ${isSource ? "flag-active" : ""}`}
+                      aria-label={`${isSource ? "Demote" : "Promote"} ${c.profile.userName}`}
+                      title={isSource ? "Demote source" : "Promote to source"}
+                      onClick={() =>
+                        void setSource(mission.id, c.profileId, !isSource)
+                          .then(() => {
+                            if (!isSource)
+                              toast(`@${c.profile.userName} is now a source.`, {
+                                label: "Collect connections",
+                                fn: () => collect(c.profile),
+                              });
+                          })
+                          .catch((err) => toast(errorText(err)))
+                      }
+                    >
+                      <Flag size={16} />
+                    </button>
+                  </td>
+                  <td>
+                    <a
+                      className="icon-button"
+                      href={c.profile.profileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={`Open ${c.profile.userName} on Instagram`}
+                    >
+                      <ArrowUpRight size={18} />
+                    </a>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {!data?.rows.length && (
+        <div className="empty small-empty">
+          <Search size={28} />
+          <h3>No candidates here yet.</h3>
+          <p>
+            {search || filter !== "all"
+              ? "Try another name or outcome filter."
+              : "Add an account or collect from a source to start your search."}
+          </p>
+        </div>
+      )}
+      <div className="pagination">
+        <span>
+          {data?.count
+            ? `${page * 40 + 1}–${Math.min((page + 1) * 40, data.count)} of ${number(data.count)}`
+            : "0 candidates"}
+        </span>
+        <div>
+          <button
+            className="icon-button"
+            aria-label="Previous page"
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <span>Page {page + 1}</span>
+          <button
+            className="icon-button"
+            aria-label="Next page"
+            disabled={!data || (page + 1) * 40 >= data.count}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+function HistoryDialog({
+  close,
+  toast,
+  collectAgain,
+  busy,
+}: {
+  close: () => void;
+  toast: Toast;
+  collectAgain: (run: Run) => void;
+  busy: boolean;
+}) {
+  const [page, setPage] = useState(0);
+  const history = useLiveQuery(async () => {
+    const runs = await db.runs
+      .orderBy("updatedAt")
+      .reverse()
+      .offset(page * 20)
+      .limit(20)
+      .toArray();
+    return Promise.all(
+      runs.map(async (r) => ({
+        ...r,
+        count: new Set(
+          (await db.results.where("runId").equals(r.id).toArray()).map(
+            (p) => p.profileId,
+          ),
+        ).size,
+      })),
+    );
+  }, [page]);
+  const count = useLiveQuery(() => db.runs.count());
+  return (
+    <Dialog title="Collection history" close={close} wide>
+      <p className="muted">
+        Saved across your workspace. “Completed” means the requested traversal
+        finished; restricted or missing data is marked partial.
+      </p>
+      <div className="history-list">
+        {history?.map((run) => (
+          <div className="history-row" key={run.id}>
+            <div>
+              <strong>@{run.targetLabel}</strong>
+              <p>
+                {run.mode === "both" ? "Followers + following" : run.mode} ·{" "}
+                {number(run.count)} unique profiles · {date(run.updatedAt)}
+              </p>
+              {run.reason && <p className="history-reason">{run.reason}</p>}
+              {run.retryAt && run.retryAt > Date.now() && (
+                <p>Resume after {date(run.retryAt)}</p>
+              )}
+            </div>
+            <div className="history-actions">
+              <span className={`status-pill ${run.status}`}>{run.status}</span>
+              {run.status === "running" ? (
+                <button
+                  className="button small secondary"
+                  onClick={() => runner.pause()}
+                >
+                  <Pause size={13} />
+                  Pause
+                </button>
+              ) : run.status !== "completed" &&
+                run.checkpoint.stage !== "done" ? (
+                <button
+                  className="button small secondary"
+                  disabled={busy || (!!run.retryAt && run.retryAt > Date.now())}
+                  onClick={() =>
+                    void runner.run(run.id).catch((e) => toast(errorText(e)))
+                  }
+                >
+                  <Play size={13} />
+                  Resume
+                </button>
+              ) : null}
+              <button
+                className="button small ghost"
+                disabled={busy}
+                onClick={() => {
+                  close();
+                  collectAgain(run);
+                }}
+              >
+                Collect again
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {!history?.length && (
+        <div className="empty small-empty">
+          <DatabaseIcon size={28} />
+          <h3>No collections yet.</h3>
+          <p>Your collection history will appear here.</p>
+        </div>
+      )}
+      <div className="pagination">
+        <span>{number(count || 0)} collections</span>
+        <div>
+          <button
+            className="icon-button"
+            aria-label="Previous history page"
+            disabled={page === 0}
+            onClick={() => setPage((p) => p - 1)}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <span>Page {page + 1}</span>
+          <button
+            className="icon-button"
+            aria-label="Next history page"
+            disabled={(page + 1) * 20 >= (count || 0)}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+function SettingsDialog({
+  close,
+  toast,
+  busy,
+}: {
+  close: () => void;
+  toast: Toast;
+  busy: boolean;
+}) {
+  const [delay, setDelay] = useState(5);
+  const [backup, setBackup] = useState<Backup>();
+  const [working, setWorking] = useState(false);
+  const stats = useLiveQuery(async () => ({
+    profiles: await db.profiles.count(),
+    follows: await db.follows.count(),
+    comments: await db.comments.count(),
+  }));
+  const [usage, setUsage] = useState<number>();
+  useEffect(() => {
+    void preferences().then((p) => setDelay(p.delaySeconds));
+    void navigator.storage?.estimate().then((s) => setUsage(s.usage));
+  }, []);
+  return (
+    <Dialog title="Workspace settings" close={close}>
+      <div className="settings-section">
+        <h3>Collection pace</h3>
+        <p className="muted">
+          Minimum time between every Instagram request. Longer delays mean
+          slower collection.
+        </p>
+        <form
+          className="delay-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!Number.isFinite(delay) || delay < 1 || delay > 3600) return;
+            await db.settings.put({
+              ...(await preferences()),
+              delaySeconds: delay,
+            });
+            toast("Collection pace saved.");
+          }}
+        >
+          <label className="field">
+            Delay in seconds
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              step={1}
+              required
+              value={delay}
+              onChange={(e) => setDelay(Number(e.target.value))}
+            />
+          </label>
+          <button className="button secondary">Save pace</button>
+        </form>
+      </div>
+      <div className="settings-section">
+        <h3>Saved on this device</h3>
+        <div className="storage-stats">
+          <span>
+            <strong>{number(stats?.profiles || 0)}</strong>profiles
+          </span>
+          <span>
+            <strong>{number(stats?.follows || 0)}</strong>follow links
+          </span>
+          <span>
+            <strong>{number(stats?.comments || 0)}</strong>post connections
+          </span>
+        </div>
+        <p className="tiny muted">
+          {usage !== undefined
+            ? `${(usage / 1024 / 1024).toFixed(1)} MB used. `
+            : ""}
+          No application storage cap. Available disk space still applies.
+        </p>
+      </div>
+      <div className="settings-section">
+        <h3>Backup & restore</h3>
+        <p className="muted">
+          Keep a copy of your missions, decisions, profiles, and collection
+          history. Removing the extension removes its local data.
+        </p>
+        <div className="backup-actions">
+          <button
+            className="button secondary"
+            disabled={working || busy}
+            onClick={async () => {
+              setWorking(true);
+              try {
+                const data = await exportBackup();
+                download(
+                  `instafinder-${new Date().toISOString().slice(0, 10)}.backup.json`,
+                  JSON.stringify(data),
+                );
+                toast("Backup downloaded.");
+              } catch (e) {
+                toast(errorText(e));
+              } finally {
+                setWorking(false);
+              }
+            }}
+          >
+            <ArrowDownToLine size={16} />
+            Export backup
+          </button>
+          <label
+            className={`button secondary file-button ${busy || working ? "disabled" : ""}`}
+          >
+            <ArrowUpFromLine size={16} />
+            Restore backup
+            <input
+              aria-label="Choose backup file"
+              type="file"
+              accept=".json"
+              disabled={working || busy}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (!file) return;
+                setWorking(true);
+                try {
+                  setBackup(validateBackup(JSON.parse(await file.text())));
+                } catch (err) {
+                  toast(errorText(err));
+                } finally {
+                  setWorking(false);
+                }
+              }}
+            />
+          </label>
+        </div>
+        {working && (
+          <p className="muted">
+            <LoaderCircle size={14} className="spin" /> Preparing your data…
+          </p>
+        )}
+        {backup && (
+          <div className="notice restore-confirm">
+            <p>
+              Restore this backup? It replaces all data in this workspace with{" "}
+              {backup.tables.missions.length} missions and{" "}
+              {number(backup.tables.profiles.length)} profiles.
+            </p>
+            <div>
+              <button
+                className="button secondary"
+                onClick={() => setBackup(undefined)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button danger"
+                disabled={working || busy}
+                onClick={async () => {
+                  setWorking(true);
+                  try {
+                    await restoreBackup(backup);
+                    setBackup(undefined);
+                    toast("Workspace restored.");
+                    close();
+                  } catch (err) {
+                    toast(errorText(err));
+                  } finally {
+                    setWorking(false);
+                  }
+                }}
+              >
+                Replace workspace
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div className="notice">
+        <ShieldCheck size={18} />
+        <span>
+          Local by design. Authentication cookies are never stored in your
+          database or backups. Collection requires this app tab to remain open.
+        </span>
+      </div>
+    </Dialog>
+  );
+}
+function App() {
+  const missions = useLiveQuery(() =>
+    db.missions.orderBy("createdAt").toArray(),
+  );
+  const [selected, setSelected] = useState(
+    localStorage.getItem("selectedMission") || "",
+  );
+  const [tab, setTab] = useState<"review" | "candidates">("review");
+  const [dialog, setDialog] = useState<
+    "mission" | "rename" | "add" | "settings" | "history" | "delete" | null
+  >(null);
+  const [addInitial, setAddInitial] = useState<{ value: string; mode: Mode }>();
+  const [message, setMessage] = useState<{
+    text: string;
+    action?: { label: string; fn: () => void };
+  }>();
+  const toast: Toast = (text, action) => setMessage({ text, action });
+  const mission = missions?.find((m) => m.id === selected);
+  const activeRun = useLiveQuery(() =>
+    db.runs.where("status").equals("running").first(),
+  );
+  const counts = useLiveQuery(async () => {
+    if (!selected) return { total: 0, unreviewed: 0, possible: 0 };
+    const values = await Promise.all([
+      db.candidates.where("[missionId+visible]").equals([selected, 1]).count(),
+      db.candidates
+        .where("[missionId+visible+decision]")
+        .equals([selected, 1, "unreviewed"])
+        .count(),
+      db.candidates
+        .where("[missionId+visible+decision]")
+        .equals([selected, 1, "possible"])
+        .count(),
+    ]);
+    return { total: values[0], unreviewed: values[1], possible: values[2] };
+  }, [selected]);
+  const activeCount = useLiveQuery(
+    async () =>
+      activeRun
+        ? new Set(
+            (
+              await db.results.where("runId").equals(activeRun.id).toArray()
+            ).map((r) => r.profileId),
+          ).size
+        : 0,
+    [activeRun],
+  );
+  useEffect(() => {
+    if (missions && !missions.some((m) => m.id === selected))
+      setSelected(missions[0]?.id || "");
+  }, [missions, selected]);
+  useEffect(() => {
+    localStorage.setItem("selectedMission", selected);
+  }, [selected]);
+  useEffect(() => {
+    void runner.recover().catch((e) => toast(errorText(e)));
+  }, []);
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(
+      () => setMessage(undefined),
+      message.action ? 14000 : 7000,
+    );
+    return () => clearTimeout(timer);
+  }, [message]);
+  useEffect(() => {
+    const listener = () => runner.pause();
+    window.addEventListener("pagehide", listener);
+    return () => window.removeEventListener("pagehide", listener);
+  }, []);
+  const collect = (p: Profile) => {
+    setAddInitial({ value: p.userName, mode: "both" });
+    setDialog("add");
+  };
+  const collectAgain = (run: Run) => {
+    if (!mission) {
+      toast("Create or select a mission first.");
+      return;
+    }
+    void (async () => {
+      const source = await db.profiles.get(run.sourceId);
+      const post = run.targetPostId
+        ? await db.posts.get(run.targetPostId)
+        : undefined;
+      if (!source) throw new Error("Source profile not found.");
+      setAddInitial({ value: post?.url || source.userName, mode: run.mode });
+      setDialog("add");
+    })().catch((e) => toast(errorText(e)));
+  };
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <a className="brand" href="#" onClick={(e) => e.preventDefault()}>
+          <span className="brand-mark">
+            <Compass size={23} />
+          </span>
+          <span>
+            InstaFinder<small>A little closer.</small>
+          </span>
+        </a>
+        <div className="sidebar-heading">
+          <span>YOUR MISSIONS</span>
+          <button
+            className="icon-button"
+            aria-label="New mission"
+            onClick={() => setDialog("mission")}
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+        <nav className="mission-nav">
+          {missions?.map((m) => (
+            <button
+              key={m.id}
+              className={`mission-item ${selected === m.id ? "selected" : ""}`}
+              onClick={() => {
+                setSelected(m.id);
+                setTab("review");
+              }}
+            >
+              <Layers size={17} />
+              <span>{m.name}</span>
+              {selected === m.id && <span className="nav-dot" />}
+            </button>
+          ))}
+        </nav>
+        <button
+          className="button sidebar-new"
+          onClick={() => setDialog("mission")}
+        >
+          <Plus size={16} />
+          New mission
+        </button>
+        <div className="sidebar-bottom">
+          <div className="privacy-note">
+            <ShieldCheck size={19} />
+            <div>
+              <strong>Your own workspace</strong>
+              <p>Private. Local. Yours.</p>
+            </div>
+          </div>
+          <button className="sidebar-link" onClick={() => setDialog("history")}>
+            <DatabaseIcon size={17} />
+            Collection history
+          </button>
+          <button
+            className="sidebar-link"
+            onClick={() => setDialog("settings")}
+          >
+            <SettingsIcon size={17} />
+            Settings & backups
+          </button>
+          <span className="version">INSTAFINDER · 0.1.0</span>
+        </div>
+      </aside>
+      <main className="main">
+        <header className="topbar">
+          <span>
+            <Compass size={15} />
+            {mission ? "Your workspace / Mission" : "Your workspace"}
+          </span>
+          <span className="local-indicator">
+            <span />
+            Saved locally
+          </span>
+        </header>
+        {activeRun && (
+          <div className="collection-banner" role="status">
+            <LoaderCircle size={17} className="spin" />
+            <div>
+              <strong>Collecting @{activeRun.targetLabel}</strong>
+              <span>
+                {number(activeCount || 0)} profiles saved ·{" "}
+                {activeRun.checkpoint.stage} · Keep this app tab open
+              </span>
+            </div>
+            <button
+              className="button small secondary"
+              onClick={() => runner.pause()}
+            >
+              <Pause size={14} />
+              Pause
+            </button>
+          </div>
+        )}
+        <div className="content">
+          {mission ? (
+            <>
+              <div className="mission-heading">
+                <div>
+                  <span className="eyebrow">YOUR CURRENT SEARCH</span>
+                  <h1>{mission.name}</h1>
+                  <p className="muted">
+                    A familiar face might be one connection away.
+                  </p>
+                </div>
+                <div className="heading-actions">
+                  <button
+                    className="icon-button"
+                    aria-label="Rename mission"
+                    title="Rename mission"
+                    onClick={() => setDialog("rename")}
+                  >
+                    <MoreHorizontal size={20} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label="Delete mission"
+                    title="Delete mission"
+                    onClick={() => setDialog("delete")}
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                  <button
+                    className="button primary"
+                    disabled={!!activeRun}
+                    onClick={() => {
+                      setAddInitial(undefined);
+                      setDialog("add");
+                    }}
+                  >
+                    <Plus size={17} />
+                    Add candidates
+                  </button>
+                </div>
+              </div>
+              <div className="mission-stats">
+                <div>
+                  <Users size={17} />
+                  <strong>{number(counts?.total || 0)}</strong>
+                  <span>candidates</span>
+                </div>
+                <div>
+                  <Eye size={17} />
+                  <strong>{number(counts?.unreviewed || 0)}</strong>
+                  <span>to review</span>
+                </div>
+                <div>
+                  <Heart size={17} />
+                  <strong>{number(counts?.possible || 0)}</strong>
+                  <span>possible matches</span>
+                </div>
+              </div>
+              <Sources mission={mission} toast={toast} collect={collect} />
+              <div className="view-tabs" role="tablist">
+                <button
+                  role="tab"
+                  aria-selected={tab === "review"}
+                  className={tab === "review" ? "active" : ""}
+                  onClick={() => setTab("review")}
+                >
+                  <Compass size={17} />
+                  Review
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={tab === "candidates"}
+                  className={tab === "candidates" ? "active" : ""}
+                  onClick={() => setTab("candidates")}
+                >
+                  <List size={17} />
+                  Candidates<span>{number(counts?.total || 0)}</span>
+                </button>
+              </div>
+              <div hidden={tab !== "review"}>
+                <Review
+                  key={mission.id}
+                  mission={mission}
+                  toast={toast}
+                  collect={collect}
+                  busy={!!activeRun}
+                  modalOpen={!!dialog}
+                  active={tab === "review"}
+                />
+              </div>
+              <div hidden={tab !== "candidates"}>
+                <CandidateList
+                  key={mission.id}
+                  mission={mission}
+                  toast={toast}
+                  collect={collect}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="welcome">
+              <span className="welcome-symbol">
+                <Compass size={50} strokeWidth={1.3} />
+              </span>
+              <span className="eyebrow">
+                A NAME. A FEW CONNECTIONS. A FAMILIAR FACE.
+              </span>
+              <h1>
+                Every search starts
+                <br />
+                with a mission.
+              </h1>
+              <p>
+                Gather Instagram accounts, follow the connections,
+                <br />
+                and find the person you have in mind.
+              </p>
+              <button
+                className="button primary"
+                onClick={() => setDialog("mission")}
+              >
+                <Plus size={18} />
+                Create your first mission
+              </button>
+              <div className="welcome-steps">
+                <span>
+                  <span>01</span>Name your mission
+                </span>
+                <span>
+                  <span>02</span>Add a source
+                </span>
+                <span>
+                  <span>03</span>Review one at a time
+                </span>
+              </div>
+              <p className="tiny">
+                <ShieldCheck size={14} /> Everything stays on this device.
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+      {(dialog === "mission" || (dialog === "rename" && mission)) && (
+        <MissionDialog
+          mission={dialog === "rename" ? mission : undefined}
+          close={() => setDialog(null)}
+          toast={toast}
+          onSave={(id) => setSelected(id)}
+        />
+      )}
+      {dialog === "add" && mission && (
+        <AddDialog
+          missionId={mission.id}
+          initial={addInitial}
+          close={() => setDialog(null)}
+          toast={toast}
+          busy={!!activeRun}
+        />
+      )}
+      {dialog === "settings" && (
+        <SettingsDialog
+          close={() => setDialog(null)}
+          toast={toast}
+          busy={!!activeRun}
+        />
+      )}
+      {dialog === "history" && (
+        <HistoryDialog
+          close={() => setDialog(null)}
+          toast={toast}
+          collectAgain={collectAgain}
+          busy={!!activeRun}
+        />
+      )}
+      {dialog === "delete" && mission && (
+        <Dialog title="Delete this mission?" close={() => setDialog(null)}>
+          <p className="muted">
+            “{mission.name}” and its candidate decisions will be removed. Shared
+            profiles, connections, and collection history stay saved.
+          </p>
+          <div className="dialog-actions">
+            <button
+              className="button secondary"
+              onClick={() => setDialog(null)}
+            >
+              Keep mission
+            </button>
+            <button
+              className="button danger"
+              onClick={() =>
+                void deleteMission(mission.id)
+                  .then(() => {
+                    setDialog(null);
+                    toast("Mission deleted. Shared data is preserved.");
+                  })
+                  .catch((e) => toast(errorText(e)))
+              }
+            >
+              Delete mission
+            </button>
+          </div>
+        </Dialog>
+      )}
+      {message && (
+        <div className="toast" role="status">
+          <Check size={17} />
+          <span>{message.text}</span>
+          {message.action && (
+            <button
+              onClick={() => {
+                message.action!.fn();
+                setMessage(undefined);
+              }}
+            >
+              {message.action.label}
+              <ArrowUpRight size={14} />
+            </button>
+          )}
+          <button
+            className="toast-close"
+            aria-label="Dismiss notification"
+            onClick={() => setMessage(undefined)}
+          >
+            <X size={15} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+createRoot(document.getElementById("root")!).render(<App />);

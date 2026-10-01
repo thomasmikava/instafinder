@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.test-build/
+.test-profile/
+.test-artifacts/
+*.backup.json
+.DS_Store

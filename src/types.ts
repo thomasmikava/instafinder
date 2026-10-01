@@ -1,0 +1,158 @@
+export type Decision = "unreviewed" | "no" | "unlikely" | "possible";
+export type Mode = "single" | "followers" | "following" | "both" | "commenters";
+export interface Profile {
+  id: string;
+  userName: string;
+  fullName: string;
+  profileUrl: string;
+  avatarUrl: string;
+  updatedAt: number;
+  followerCount?: number;
+  followingCount?: number;
+  postCount?: number;
+}
+export interface Mission {
+  id: string;
+  name: string;
+  includeSources: boolean;
+  createdAt: number;
+}
+export interface Candidate {
+  missionId: string;
+  profileId: string;
+  base: boolean;
+  addedAt: number;
+  decision: Decision;
+  decisionAt?: number;
+  score: number;
+  sortScore: number;
+  visible: number;
+  search: string;
+}
+export interface Source {
+  missionId: string;
+  profileId: string;
+  addedAt: number;
+}
+export interface Follow {
+  followerId: string;
+  followingId: string;
+  lastSeenAt: number;
+}
+export interface Post {
+  id: string;
+  ownerId: string;
+  url: string;
+  commentCount?: number;
+}
+export interface CommentLink {
+  postId: string;
+  profileId: string;
+  ownerId: string;
+  lastSeenAt: number;
+}
+export interface Affinity {
+  sourceId: string;
+  profileId: string;
+  score: number;
+}
+export type Stage = "followers" | "following" | "media" | "comments" | "done";
+export type RunStatus =
+  "paused" | "running" | "completed" | "partial" | "failed" | "cooldown";
+export interface Checkpoint {
+  stage: Stage;
+  cursor: string | null;
+  channel?: "feed" | "reels";
+  postId?: string;
+  seenCursors: string[];
+  pageCount: number;
+  stageCount: number;
+  commentsDone?: boolean;
+}
+export interface Run {
+  id: string;
+  key: string;
+  sourceId: string;
+  targetLabel: string;
+  mode: Mode;
+  scope: "profile" | "post";
+  targetPostId?: string;
+  status: RunStatus;
+  checkpoint: Checkpoint;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  reason?: string;
+  retryAt?: number;
+  expected?: number;
+  warnings?: string[];
+}
+export interface RunLink {
+  runId: string;
+  missionId: string;
+}
+export interface RunResult {
+  runId: string;
+  kind: string;
+  profileId: string;
+}
+export interface RunPost {
+  runId: string;
+  postId: string;
+  done: number;
+  commentCount: number;
+}
+export interface Thread {
+  runId: string;
+  postId: string;
+  commentId: string;
+  cursor: string | null;
+  seenCursors: string[];
+  done: number;
+}
+export interface SeenComment {
+  runId: string;
+  postId: string;
+  commentId: string;
+}
+export interface Settings {
+  id: string;
+  delaySeconds: number;
+  lastRequestAt?: number;
+}
+export interface Observation {
+  profiles?: Profile[];
+  follows?: Follow[];
+  posts?: Post[];
+  comments?: CommentLink[];
+  run?: Run;
+  results?: RunResult[];
+  runPosts?: RunPost[];
+  threads?: Thread[];
+  seenComments?: SeenComment[];
+  missionIds?: string[];
+}
+export interface Page<T> {
+  items: T[];
+  next: string | null;
+  more: boolean;
+  restricted?: string;
+  expected?: number;
+}
+export interface CommentItem {
+  id: string;
+  profile: Profile;
+  replyCount: number;
+  replies: CommentItem[];
+}
+export type Input =
+  | { type: "profile"; username: string }
+  | { type: "post"; shortcode: string; url: string };
+export interface Resolved {
+  source: Profile;
+  post?: Post;
+  input: Input;
+  key: string;
+  mode: Mode;
+  cached?: boolean;
+}
