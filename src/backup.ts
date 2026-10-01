@@ -1,5 +1,5 @@
 import { db, preferences, type Database } from "./db";
-import { rebuildMission } from "./data";
+import { rebuildAffinities } from "./data";
 const names = [
   "profiles",
   "missions",
@@ -274,25 +274,7 @@ export async function restoreBackup(input: unknown, database = db) {
         restoredTiming.cooldownUntil || 0,
       ),
     });
-    const weights = new Map<
-      string,
-      { sourceId: string; profileId: string; score: number }
-    >();
-    const add = (sourceId: string, profileId: string) => {
-      if (sourceId === profileId) return;
-      const k = JSON.stringify([sourceId, profileId]);
-      const prev = weights.get(k);
-      weights.set(k, { sourceId, profileId, score: (prev?.score || 0) + 1 });
-    };
-    for (const f of await database.follows.toArray()) {
-      add(f.followerId, f.followingId);
-      add(f.followingId, f.followerId);
-    }
-    for (const c of await database.comments.toArray())
-      add(c.ownerId, c.profileId);
-    if (weights.size) await database.affinities.bulkPut([...weights.values()]);
-    for (const m of await database.missions.toArray())
-      await rebuildMission(m.id, database);
+    await rebuildAffinities(database);
   });
 }
 export function download(name: string, text: string) {

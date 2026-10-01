@@ -318,20 +318,139 @@ export async function candidatePage(
       .filter((c) => c.profile),
   };
 }
-export async function deleteMission(id: string, database = db) {
-  await database.transaction(
-    "rw",
-    [
-      database.missions,
-      database.candidates,
-      database.sources,
-      database.runLinks,
-    ],
-    async () => {
-      await database.missions.delete(id);
-      await database.candidates.where("missionId").equals(id).delete();
-      await database.sources.where("missionId").equals(id).delete();
-      await database.runLinks.where("missionId").equals(id).delete();
-    },
-  );
+/** Rebuild derived weights after removing observations or restoring a backup. */
+export async function rebuildAffinities(database = db) {
+  const weights = new Map<string, Affinity>();
+  const add = (sourceId: string, profileId: string) => {
+    if (sourceId === profileId) return;
+    const key = pair(sourceId, profileId);
+    weights.set(key, {
+      sourceId,
+      profileId,
+      score: (weights.get(key)?.score || 0) + 1,
+    });
+  };
+  for (const f of await database.follows.toArray()) {
+    add(f.followerId, f.followingId);
+    add(f.followingId, f.followerId);
+  }
+  for (const c of await database.comments.toArray())
+    add(c.ownerId, c.profileId);
+  await database.affinities.clear();
+  if (weights.size) await database.affinities.bulkPut([...weights.values()]);
+  for (const m of await database.missions.toArray())
+    await rebuildMission(m.id, database);
+}
+export async function deleteMission(
+  id: string,
+  database = db,
+  deleteSharedCandidates = false,
+) {
+  await database.transaction("rw", database.tables, async () => {
+    if (await database.runs.where("status").equals("running").count())
+      throw new Error("Pause collection before deleting a mission.");
+    // Keep excluded source-only profiles; included sources are review candidates too.
+    const members = await database.candidates
+      .where("missionId")
+      .equals(id)
+      .toArray();
+    const targets = members
+      .filter((c) => c.base || c.visible === 1)
+      .map((c) => c.profileId);
+    await database.missions.delete(id);
+    await database.candidates.where("missionId").equals(id).delete();
+    await database.sources.where("missionId").equals(id).delete();
+    await database.runLinks.where("missionId").equals(id).delete();
+    if (!targets.length) return;
+    const shared = new Set<string>();
+    if (!deleteSharedCandidates) {
+      for (const c of await database.candidates
+        .where("profileId")
+        .anyOf(targets)
+        .toArray())
+        if (c.base || c.visible === 1) shared.add(c.profileId);
+      for (const s of await database.sources
+        .where("profileId")
+        .anyOf(targets)
+        .toArray())
+        shared.add(s.profileId);
+    }
+    const ids = targets.filter((profileId) => !shared.has(profileId));
+    if (!ids.length) return;
+    const removed = new Set(ids);
+    const posts = await database.posts.where("ownerId").anyOf(ids).toArray();
+    const postIds = new Set(posts.map((p) => p.id));
+    const results = await database.results
+      .filter((r) => removed.has(r.profileId))
+      .toArray();
+    const affected = new Set(results.map((r) => r.runId));
+    for (const r of await database.runPosts
+      .filter((r) => postIds.has(r.postId))
+      .toArray())
+      affected.add(r.runId);
+    const runs = await database.runs.toArray();
+    const erasedRuns = new Set(
+      runs
+        .filter(
+          (r) =>
+            removed.has(r.sourceId) ||
+            (r.targetPostId && postIds.has(r.targetPostId)),
+        )
+        .map((r) => r.id),
+    );
+    await database.profiles.bulkDelete(ids);
+    await database.candidates.where("profileId").anyOf(ids).delete();
+    await database.sources.where("profileId").anyOf(ids).delete();
+    await database.follows.where("followerId").anyOf(ids).delete();
+    await database.follows.where("followingId").anyOf(ids).delete();
+    await database.comments
+      .filter(
+        (c) =>
+          removed.has(c.profileId) ||
+          removed.has(c.ownerId) ||
+          postIds.has(c.postId),
+      )
+      .delete();
+    await database.posts.bulkDelete([...postIds]);
+    await database.results
+      .filter((r) => removed.has(r.profileId) || erasedRuns.has(r.runId))
+      .delete();
+    await database.runs.bulkDelete([...erasedRuns]);
+    await database.runLinks.filter((r) => erasedRuns.has(r.runId)).delete();
+    // A cached traversal is no longer complete after its saved results are deleted.
+    // Close its checkpoints so explicit recollection starts from a valid state.
+    for (const r of runs) {
+      if (affected.has(r.id) && !erasedRuns.has(r.id))
+        await database.runs.put({
+          ...r,
+          status: "partial",
+          completedAt: undefined,
+          retryAt: undefined,
+          reason:
+            "Candidates were deleted. Collect again to refresh saved results.",
+          updatedAt: Date.now(),
+          checkpoint: {
+            stage: "done",
+            cursor: null,
+            seenCursors: [],
+            pageCount: 0,
+            stageCount: 0,
+          },
+        });
+    }
+    for (const table of [
+      database.runPosts,
+      database.threads,
+      database.seenComments,
+    ])
+      await table
+        .filter(
+          (r) =>
+            erasedRuns.has(r.runId) ||
+            affected.has(r.runId) ||
+            postIds.has(r.postId),
+        )
+        .delete();
+    await rebuildAffinities(database);
+  });
 }

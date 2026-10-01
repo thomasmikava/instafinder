@@ -183,6 +183,51 @@ try {
   );
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`chrome-extension://${id}/app.html`);
+  for (const [index, title] of [
+    "Find someone on Instagram",
+    "Missions",
+    "Sources",
+    "Review candidates",
+  ].entries()) {
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", { name: title, exact: true })
+      .waitFor();
+    assert.equal(await page.locator(".intro-card").count(), 1);
+    assert.ok(
+      (await page.locator(".intro-card").innerText()).split(/\s+/).length <= 25,
+    );
+    assert.equal(
+      await page.locator(".intro-progress").getAttribute("aria-label"),
+      `Step ${index + 1} of 4`,
+    );
+    if (index === 1) {
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "Find someone on Instagram" })
+        .waitFor();
+      await page.getByRole("button", { name: "Next", exact: true }).click();
+    }
+    if (index === 2)
+      await page.screenshot({
+        path: ".test-artifacts/onboarding.png",
+        fullPage: true,
+      });
+    await page
+      .getByRole("button", {
+        name: index === 3 ? "Get started" : "Next",
+        exact: true,
+      })
+      .click();
+  }
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Create mission", exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  checks.push(
+    "First-visit onboarding shows four short cards one at a time, supports Back, and stays dismissed after reload.",
+  );
   await page.getByRole("button", { name: "Create mission" }).click();
   await page.getByLabel("Mission name").fill("Opening night");
   await page
@@ -192,6 +237,42 @@ try {
   await page
     .getByRole("heading", { name: "Opening night", exact: true })
     .waitFor();
+  await page
+    .getByRole("button", { name: "Mission actions", exact: true })
+    .click();
+  await page.getByRole("menu", { name: "Mission actions" }).waitFor();
+  assert.equal(await page.getByRole("menuitem").count(), 2);
+  await page.screenshot({
+    path: ".test-artifacts/mission-menu.png",
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+  assert.equal(await page.getByRole("menu").count(), 0);
+  await page
+    .getByRole("button", { name: "Mission actions", exact: true })
+    .click();
+  await page
+    .getByRole("heading", { name: "Opening night", exact: true })
+    .click();
+  assert.equal(await page.getByRole("menu").count(), 0);
+  await page
+    .getByRole("button", { name: "Mission actions", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Edit mission name" }).click();
+  await page.getByLabel("Mission name").fill("Opening night edited");
+  await page.getByRole("button", { name: "Save name" }).click();
+  await page
+    .getByRole("heading", { name: "Opening night edited", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Mission actions", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Edit mission name" }).click();
+  await page.getByLabel("Mission name").fill("Opening night");
+  await page.getByRole("button", { name: "Save name" }).click();
+  checks.push(
+    "The mission menu exposes Edit mission name and Add Candidate Manually; Escape and outside clicks dismiss it.",
+  );
   await page.getByRole("button", { name: "Settings & backups" }).click();
   await page.getByLabel("Delay in seconds").fill("1");
   await page.getByRole("button", { name: "Save pace" }).click();
@@ -201,6 +282,29 @@ try {
     .getByRole("heading", { name: "Add source", exact: true })
     .waitFor();
   assert.equal(await page.getByRole("radio").count(), 4);
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Add a single candidate instead" })
+      .count(),
+    0,
+  );
+  const radioOffsets = await page
+    .locator(".mode-option")
+    .evaluateAll((options) =>
+      options.map((option) => {
+        const input = option.querySelector("input").getBoundingClientRect();
+        const text = option.querySelector("strong").getBoundingClientRect();
+        return Math.abs(input.y + input.height / 2 - text.y - text.height / 2);
+      }),
+    );
+  assert.ok(
+    radioOffsets.every((offset) => offset <= 0.5),
+    `Radio labels are centered: ${radioOffsets}`,
+  );
+  checks.push(
+    "All four collection radio buttons align vertically with their labels, and Add source contains no manual-candidate switch.",
+  );
+
   await page.screenshot({
     path: ".test-artifacts/add-source.png",
     fullPage: true,
@@ -333,11 +437,23 @@ try {
   checks.push(
     "Dated cached collection results can populate another mission without any Instagram request.",
   );
-  await page.getByRole("button", { name: "Add source", exact: true }).click();
-  await page.getByLabel("Username or Instagram URL").fill("casey");
   await page
-    .getByRole("button", { name: "Add a single candidate instead" })
+    .getByRole("button", { name: "Mission actions", exact: true })
     .click();
+  await page.getByRole("menuitem", { name: "Add Candidate Manually" }).click();
+  await page
+    .getByRole("heading", { name: "Add Candidate Manually", exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("radio").count(), 0);
+  await page
+    .getByLabel("Username or profile URL")
+    .fill("https://www.instagram.com/p/BA/");
+  await page.getByRole("button", { name: "Look up account" }).click();
+  await page
+    .getByRole("alert")
+    .getByText("Enter a username or profile URL.", { exact: true })
+    .waitFor();
+  await page.getByLabel("Username or profile URL").fill("casey");
   await page.getByRole("button", { name: "Look up account" }).click();
   await page.getByRole("button", { name: "Add this candidate" }).click();
   await page.getByRole("tab", { name: /Candidates/ }).click();
@@ -347,7 +463,7 @@ try {
     .getByText("Casey Hall", { exact: true })
     .waitFor();
   checks.push(
-    "A single profile can be added without automatic source promotion.",
+    "Manual candidate entry has its own menu action and profile-only dialog, without automatic source promotion.",
   );
   await page.getByLabel("Search candidates").fill("");
   await page.screenshot({
@@ -528,6 +644,128 @@ try {
     () => document.documentElement.scrollWidth > innerWidth,
   );
   assert.equal(overflow, false);
+  const deletion = await page.evaluate(async () => {
+    const api = window.__testing;
+    const target = await api.createMission("Delete default");
+    const other = await api.createMission("Keep shared");
+    const forced = await api.createMission("Delete everywhere");
+    const profile = (id) => ({
+      id,
+      userName: `delete${id}`,
+      fullName: `Deletion person ${id}`,
+      profileUrl: `https://www.instagram.com/delete${id}/`,
+      avatarUrl: "",
+      updatedAt: 1,
+    });
+    await api.applyObservation({
+      profiles: [profile("8000001"), profile("8000002")],
+      missionIds: [target.id],
+    });
+    await api.applyObservation({
+      profiles: [profile("8000002"), profile("8000004")],
+      missionIds: [other.id],
+    });
+    await api.applyObservation({
+      profiles: [profile("8000002"), profile("8000003")],
+      missionIds: [forced.id],
+    });
+    await api.setSource(other.id, "8000002", true);
+    await api.db.candidates.update([other.id, "8000002"], {
+      decision: "possible",
+    });
+    await api.applyObservation({
+      follows: [
+        { followerId: "8000004", followingId: "8000002", lastSeenAt: 1 },
+      ],
+    });
+    return { target: target.id, other: other.id, forced: forced.id };
+  });
+  const deleteLabel =
+    "Also delete candidates of this mission even if they are used by other missions";
+  await page
+    .getByRole("button", { name: "Delete default", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete mission", exact: true })
+    .click();
+  assert.equal(await page.getByLabel(deleteLabel).isChecked(), false);
+  await page.getByLabel(deleteLabel).check();
+  await page.getByRole("button", { name: "Keep mission", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Delete mission", exact: true })
+    .click();
+  assert.equal(await page.getByLabel(deleteLabel).isChecked(), false);
+  await page.screenshot({
+    path: ".test-artifacts/delete-mission-mobile.png",
+    fullPage: true,
+  });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete mission", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const kept = await page.evaluate(async ({ target, other }) => {
+    const api = window.__testing;
+    return {
+      target: await api.db.missions.get(target),
+      private: await api.db.profiles.get("8000001"),
+      shared: !!(await api.db.profiles.get("8000002")),
+      decision: (await api.db.candidates.get([other, "8000002"]))?.decision,
+      source: !!(await api.db.sources.get([other, "8000002"])),
+    };
+  }, deletion);
+  assert.deepEqual(kept, {
+    target: undefined,
+    private: undefined,
+    shared: true,
+    decision: "possible",
+    source: true,
+  });
+  checks.push(
+    "Mission deletion defaults to keeping shared candidates, removes candidates used only here, and resets its unchecked option after cancellation.",
+  );
+  await page
+    .getByRole("button", { name: "Delete everywhere", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete mission", exact: true })
+    .click();
+  await page.getByLabel(deleteLabel).check();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete mission", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const removed = await page.evaluate(async ({ other, forced }) => {
+    const api = window.__testing;
+    return {
+      forced: await api.db.missions.get(forced),
+      shared: await api.db.profiles.get("8000002"),
+      private: await api.db.profiles.get("8000003"),
+      membership: await api.db.candidates.get([other, "8000002"]),
+      source: await api.db.sources.get([other, "8000002"]),
+      remainingScore: (await api.db.candidates.get([other, "8000004"]))?.score,
+      keepOther: !!(await api.db.missions.get(other)),
+    };
+  }, deletion);
+  assert.deepEqual(removed, {
+    forced: undefined,
+    shared: undefined,
+    private: undefined,
+    membership: undefined,
+    source: undefined,
+    remainingScore: 0,
+    keepOther: true,
+  });
+  checks.push(
+    "Checking the deletion option removes shared candidates and their source membership from other missions, while preserving those missions and recomputing priority.",
+  );
   assert.deepEqual(errors, []);
   checks.push(
     "Desktop and mobile rendering have no uncaught browser errors or mobile page overflow.",

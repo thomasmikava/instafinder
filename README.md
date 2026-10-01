@@ -27,8 +27,9 @@ The unpacked extension stores data under its extension ID in the Chrome profile.
 
 ## Your workflow
 
-- **Missions:** create a named search; rename or delete it. Deleting a mission preserves global profiles, relationships and collection history.
-- **Add source:** choose followers, following, both lists, or commenters. Use the secondary single-candidate option to add one account directly. Profile commenter collection scans all accessible feed posts and reels, including replies. A post/reel URL scans only that item.
+- **Missions:** create a named search. The three-dot menu offers **Edit mission name** and **Add Candidate Manually**. The first visit shows four short cards explaining the workflow.
+- **Add source:** choose followers, following, both lists, or commenters. Use **Add Candidate Manually** in the mission menu for one account directly. Profile commenter collection scans all accessible feed posts and reels, including replies. A post/reel URL scans only that item.
+- **Delete mission:** candidates used only in that mission are deleted along with their saved relationships. Candidates or sources used by another mission stay by default. The unchecked option also deletes this mission’s candidates from other missions, including their decisions and source memberships. Excluded source-only profiles and unrelated saved profiles stay. Affected saved collections become partial and require collecting again; deleted profiles cannot return through cached results. Pause an active collection before deletion.
 - **Sources:** collection targets become sources. Promote a saved candidate or search your saved-profile library to add one. Promotion uses saved data, suggests collection, and never silently starts it. Demote sources whenever you like.
 - **Source visibility:** each mission defaults to excluding active sources from candidates. The Sources panel's checkbox can change this without losing decisions.
 - **Review:** choose **Not the person**, **Probably not**, or **Possible match**. Reviewed profiles leave the queue. Use `1`, `2`, `3`, Undo, or `Ctrl/⌘ Z`. Ranking runs behind the scenes without point displays or explanations. The visible card stays stable until you act.

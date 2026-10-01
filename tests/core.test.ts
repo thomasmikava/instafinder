@@ -12,7 +12,7 @@ import {
   setSource,
   deleteMission,
 } from "../src/data";
-import { exportBackup, restoreBackup } from "../src/backup";
+import { exportBackup, restoreBackup, validateBackup } from "../src/backup";
 import {
   CollectionError,
   Instagram,
@@ -232,16 +232,196 @@ test("backup roundtrip, derived score repair, running job recovery and invalid b
   await d.delete();
   await target.delete();
 });
-test("mission deletion preserves shared profiles, edges and history", async () => {
+test("mission deletion removes unshared candidates but preserves other mission memberships, sources and decisions", async () => {
   const { d, m } = await setup();
+  const other = await createMission("Other", d);
   await applyObservation(
-    { follows: [{ followerId: "2", followingId: "1", lastSeenAt: 1 }] },
+    { profiles: [profile("2"), profile("9")], missionIds: [other.id] },
+    d,
+  );
+  await setSource(other.id, "3", true, d);
+  await setSource(other.id, "4", true, d);
+  await setSource(other.id, "4", false, d);
+  // The hidden bookkeeping row left by a demoted source is no longer active use.
+  await decide(other.id, "2", "possible", d);
+  await applyObservation(
+    {
+      follows: [
+        { followerId: "2", followingId: "1", lastSeenAt: 1 },
+        { followerId: "2", followingId: "3", lastSeenAt: 1 },
+      ],
+    },
     d,
   );
   await deleteMission(m.id, d);
-  assert.equal(await d.profiles.count(), 4);
+  assert.deepEqual((await d.profiles.toArray()).map((p) => p.id).sort(), [
+    "2",
+    "3",
+    "9",
+  ]);
   assert.equal(await d.follows.count(), 1);
-  assert.equal(await d.candidates.count(), 0);
+  assert.equal(await d.candidates.where("missionId").equals(m.id).count(), 0);
+  assert.equal((await d.candidates.get([other.id, "2"]))!.decision, "possible");
+  assert.equal((await d.candidates.get([other.id, "2"]))!.score, 1);
+  assert.ok(await d.sources.get([other.id, "3"]));
+  validateBackup(await exportBackup(d));
+  await d.delete();
+});
+test("forced candidate deletion removes memberships and facts across missions, recomputes scores and invalidates cached results", async () => {
+  const { d, m } = await setup();
+  const other = await createMission("Other", d);
+  await applyObservation(
+    {
+      profiles: [profile("1"), profile("2"), profile("9")],
+      missionIds: [other.id],
+    },
+    d,
+  );
+  await setSource(other.id, "1", true, d);
+  await setSource(other.id, "9", true, d);
+  await decide(other.id, "2", "possible", d);
+  await applyObservation(
+    {
+      follows: [
+        { followerId: "9", followingId: "1", lastSeenAt: 1 },
+        { followerId: "9", followingId: "2", lastSeenAt: 1 },
+      ],
+      posts: [
+        { id: "10", ownerId: "1", url: "" },
+        { id: "11", ownerId: "9", url: "" },
+      ],
+      comments: [
+        { postId: "10", ownerId: "1", profileId: "9", lastSeenAt: 1 },
+        { postId: "11", ownerId: "9", profileId: "2", lastSeenAt: 1 },
+      ],
+    },
+    d,
+  );
+  const run = (id: string, sourceId: string): Run => ({
+    id,
+    sourceId,
+    targetLabel: `user${sourceId}`,
+    key: id,
+    mode: "followers",
+    scope: "profile",
+    status: "completed",
+    createdAt: 1,
+    updatedAt: 1,
+    completedAt: 1,
+    checkpoint: { ...cp, stage: "done" },
+  });
+  await d.runs.bulkPut([
+    run("removed", "1"),
+    run("partial", "9"),
+    run("untouched", "9"),
+  ]);
+  await d.runLinks.bulkPut([
+    { runId: "removed", missionId: other.id },
+    { runId: "partial", missionId: other.id },
+  ]);
+  await d.results.bulkPut([
+    { runId: "removed", kind: "followers", profileId: "9" },
+    { runId: "partial", kind: "followers", profileId: "2" },
+    { runId: "partial", kind: "followers", profileId: "9" },
+    { runId: "untouched", kind: "followers", profileId: "9" },
+  ]);
+  await d.runPosts.put({
+    runId: "removed",
+    postId: "10",
+    done: 1,
+    commentCount: 1,
+  });
+  await d.threads.put({
+    runId: "removed",
+    postId: "10",
+    commentId: "20",
+    cursor: null,
+    seenCursors: [],
+    done: 1,
+  });
+  await d.seenComments.put({ runId: "removed", postId: "10", commentId: "20" });
+  assert.equal((await d.candidates.get([other.id, "9"]))!.score, 2);
+  await deleteMission(m.id, d, true);
+  assert.deepEqual(
+    (await d.profiles.toArray()).map((p) => p.id),
+    ["9"],
+  );
+  assert.equal(await d.candidates.count(), 1);
+  assert.equal((await d.candidates.get([other.id, "9"]))!.score, 0);
+  assert.equal(await d.sources.count(), 1);
+  assert.equal(await d.follows.count(), 0);
+  assert.equal(await d.comments.count(), 0);
+  assert.equal(await d.affinities.count(), 0);
+  assert.deepEqual(
+    (await d.posts.toArray()).map((p) => p.id),
+    ["11"],
+  );
+  assert.equal(await d.runs.get("removed"), undefined);
+  assert.equal((await d.runs.get("partial"))!.status, "partial");
+  assert.equal((await d.runs.get("partial"))!.checkpoint.stage, "done");
+  assert.equal((await d.runs.get("partial"))!.completedAt, undefined);
+  assert.equal((await d.runs.get("untouched"))!.status, "completed");
+  assert.equal(await d.results.count(), 2);
+  assert.equal(await d.runPosts.count(), 0);
+  assert.equal(await d.threads.count(), 0);
+  assert.equal(await d.seenComments.count(), 0);
+  validateBackup(await exportBackup(d));
+  await reuseRun("partial", other.id, d);
+  assert.equal(await d.candidates.get([other.id, "2"]), undefined);
+  const target = database();
+  await restoreBackup(await exportBackup(d), target);
+  assert.equal(await target.profiles.count(), 1);
+  await target.delete();
+  await d.delete();
+});
+test("mission deletion keeps excluded source-only data and unrelated profiles, but deletes included source candidates", async () => {
+  const d = database();
+  const excluded = await createMission("Excluded", d);
+  const included = await createMission("Included", d);
+  await applyObservation(
+    { profiles: [profile("1"), profile("2"), profile("3")] },
+    d,
+  );
+  await setSource(excluded.id, "1", true, d);
+  await setSource(included.id, "2", true, d);
+  await includeSources(included.id, true, d);
+  await deleteMission(excluded.id, d, true);
+  assert.ok(await d.profiles.get("1"));
+  await deleteMission(included.id, d);
+  assert.equal(await d.profiles.get("2"), undefined);
+  assert.ok(await d.profiles.get("1"));
+  assert.ok(await d.profiles.get("3"));
+  assert.equal(await d.missions.count(), 0);
+  await d.delete();
+});
+test("mission deletion is atomic and cannot race an active collection", async () => {
+  const { d, m } = await setup();
+  await d.runs.put({
+    id: "running",
+    key: "running",
+    sourceId: "1",
+    targetLabel: "user1",
+    mode: "followers",
+    scope: "profile",
+    status: "running",
+    createdAt: 1,
+    updatedAt: 1,
+    checkpoint: cp,
+  });
+  await assert.rejects(deleteMission(m.id, d, true), /Pause collection/);
+  assert.equal(await d.profiles.count(), 4);
+  assert.equal(await d.candidates.count(), 4);
+  assert.ok(await d.missions.get(m.id));
+  await d.runs.update("running", { status: "paused" });
+  const clear = d.affinities.clear.bind(d.affinities);
+  d.affinities.clear = async () => {
+    throw new Error("Synthetic write failure");
+  };
+  await assert.rejects(deleteMission(m.id, d, true), /Synthetic write failure/);
+  d.affinities.clear = clear;
+  assert.equal(await d.profiles.count(), 4);
+  assert.equal(await d.candidates.count(), 4);
+  assert.ok(await d.missions.get(m.id));
   await d.delete();
 });
 test("username and profile/post/reel input parsing and lossless shortcode IDs", () => {

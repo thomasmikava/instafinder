@@ -896,7 +896,10 @@ td {
   font-weight: 550;
 }
 .mode-option {
-  padding: 13px 12px 13px 35px;
+  padding: 13px 12px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   border: 1px solid #e2e9de;
   border-radius: 8px;
   position: relative;
@@ -904,9 +907,11 @@ td {
   color: #81967e;
 }
 .mode-option input {
-  position: absolute;
-  left: 11px;
-  top: 13px;
+  position: static;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin: 0;
   accent-color: var(--green);
 }
 .mode-option strong {
@@ -1452,21 +1457,88 @@ td {
   max-width: 425px;
   margin: 0 auto;
 }
-.text-button {
+.mission-menu {
+  position: relative;
+}
+.mission-menu-panel {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 235px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 8px 28px #24372616;
+}
+.mission-menu-panel button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: 7px;
   background: transparent;
-  color: var(--green);
-  padding: 10px 0;
-  font-size: 12px;
   text-align: left;
+  color: var(--ink);
+  font-size: 12px;
 }
-.text-button:hover {
-  text-decoration: underline;
+.mission-menu-panel button:hover,
+.mission-menu-panel button:focus-visible {
+  background: #f0f6eb;
 }
-.mode-option {
-  min-height: 50px;
+.intro-card {
+  padding: 12px 0 4px;
 }
-@media (min-width: 1450px) {
-  .review-layout {
-    max-width: 445px;
-  }
+.intro-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  color: var(--green);
+  background: #f0f6eb;
+  border-radius: 18px;
+}
+.intro-card p {
+  max-width: 410px;
+  font-size: 15px;
+  line-height: 1.7;
+  margin: 20px 0;
+}
+.intro-progress {
+  display: flex;
+  gap: 6px;
+}
+.intro-progress span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e0e8dc;
+}
+.intro-progress .active {
+  background: var(--green);
+}
+.intro-actions {
+  justify-content: space-between;
+}
+.intro-actions > div {
+  display: flex;
+  gap: 8px;
+}
+.delete-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.delete-option input {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  margin: 3px 0 0;
+  accent-color: var(--green);
 }

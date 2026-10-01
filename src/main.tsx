@@ -161,6 +161,253 @@ function Dialog({
     </dialog>
   );
 }
+const introCards = [
+  {
+    title: "Find someone on Instagram",
+    text: "Collect accounts, then review them one by one to find the person you’re looking for.",
+    Icon: Compass,
+  },
+  {
+    title: "Missions",
+    text: "A mission is one search. Give it a name to keep its candidates and your choices together.",
+    Icon: Layers,
+  },
+  {
+    title: "Sources",
+    text: "A source is an Instagram account or post you start from. Collect its followers, following or commenters as candidates.",
+    Icon: Flag,
+  },
+  {
+    title: "Review candidates",
+    text: "A candidate is someone you might be looking for. Choose Not the person, Probably not or Possible match.",
+    Icon: Users,
+  },
+];
+function IntroDialog({ close }: { close: () => void }) {
+  const [step, setStep] = useState(0);
+  const { title, text, Icon } = introCards[step];
+  return (
+    <Dialog title={title} close={close}>
+      <div className="intro-card" aria-live="polite">
+        <span className="intro-icon">
+          <Icon size={32} strokeWidth={1.5} />
+        </span>
+        <p>{text}</p>
+      </div>
+      <div
+        className="intro-progress"
+        aria-label={`Step ${step + 1} of ${introCards.length}`}
+      >
+        {introCards.map((card, index) => (
+          <span key={card.title} className={index === step ? "active" : ""} />
+        ))}
+      </div>
+      <div className="dialog-actions intro-actions">
+        <button className="button secondary" onClick={close}>
+          Skip
+        </button>
+        <div>
+          {step > 0 && (
+            <button
+              className="button secondary"
+              onClick={() => setStep(step - 1)}
+            >
+              Back
+            </button>
+          )}
+          <button
+            className="button primary"
+            onClick={() =>
+              step === introCards.length - 1 ? close() : setStep(step + 1)
+            }
+          >
+            {step === introCards.length - 1 ? "Get started" : "Next"}
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+function MissionMenu({
+  open,
+  setOpen,
+  edit,
+  add,
+  busy,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  edit: () => void;
+  add: () => void;
+  busy: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    const outside = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open, setOpen]);
+  return (
+    <div className="mission-menu" ref={ref}>
+      <button
+        ref={trigger}
+        className="icon-button"
+        aria-label="Mission actions"
+        title="Mission actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? "mission-actions-menu" : undefined}
+        onClick={() => setOpen(!open)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        <MoreHorizontal size={20} />
+      </button>
+      {open && (
+        <div
+          id="mission-actions-menu"
+          className="mission-menu-panel"
+          role="menu"
+          aria-label="Mission actions"
+          onKeyDown={(e) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key))
+              return;
+            e.preventDefault();
+            const items = [
+              ...e.currentTarget.querySelectorAll<HTMLButtonElement>(
+                "button:not(:disabled)",
+              ),
+            ];
+            const index = items.indexOf(
+              document.activeElement as HTMLButtonElement,
+            );
+            const next =
+              e.key === "Home"
+                ? 0
+                : e.key === "End"
+                  ? items.length - 1
+                  : (index + (e.key === "ArrowDown" ? 1 : -1) + items.length) %
+                    items.length;
+            items[next]?.focus();
+          }}
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              edit();
+            }}
+          >
+            Edit mission name
+          </button>
+          <button
+            role="menuitem"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              add();
+            }}
+          >
+            Add Candidate Manually
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+function DeleteMissionDialog({
+  mission,
+  close,
+  toast,
+  busy,
+}: {
+  mission: Mission;
+  close: () => void;
+  toast: Toast;
+  busy: boolean;
+}) {
+  const [deleteShared, setDeleteShared] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <Dialog
+      title="Delete this mission?"
+      close={() => {
+        if (!loading) close();
+      }}
+    >
+      <p className="muted">
+        “{mission.name}” and its decisions will be removed. Candidates used only
+        here will also be deleted.
+      </p>
+      <label className="delete-option">
+        <input
+          type="checkbox"
+          checked={deleteShared}
+          disabled={loading}
+          onChange={(e) => setDeleteShared(e.target.checked)}
+        />
+        <span>
+          Also delete candidates of this mission even if they are used by other
+          missions
+        </span>
+      </label>
+      {busy && (
+        <p className="notice">Pause collection before deleting a mission.</p>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="dialog-actions">
+        <button className="button secondary" disabled={loading} onClick={close}>
+          Keep mission
+        </button>
+        <button
+          className="button danger"
+          disabled={loading || busy}
+          onClick={async () => {
+            setLoading(true);
+            setError("");
+            try {
+              await deleteMission(mission.id, db, deleteShared);
+              close();
+              toast("Mission deleted.");
+            } catch (e) {
+              setError(errorText(e));
+            } finally {
+              setLoading(false);
+            }
+          }}
+        >
+          {loading && <LoaderCircle size={16} className="spin" />}Delete mission
+        </button>
+      </div>
+    </Dialog>
+  );
+}
 function MissionDialog({
   mission,
   close,
@@ -226,6 +473,7 @@ function AddDialog({
   toast: Toast;
   busy: boolean;
 }) {
+  const manual = initial?.mode === "single";
   const [value, setValue] = useState(initial?.value || "");
   const [mode, setMode] = useState<Mode>(initial?.mode || "both");
   const [resolved, setResolved] = useState<Resolved>();
@@ -283,7 +531,7 @@ function AddDialog({
   );
   return (
     <Dialog
-      title={mode === "single" && !isPost ? "Add candidate" : "Add source"}
+      title={manual ? "Add Candidate Manually" : "Add source"}
       close={close}
     >
       {!resolved ? (
@@ -293,6 +541,8 @@ function AddDialog({
             setLoading(true);
             setError("");
             try {
+              if (manual && isPost)
+                throw new Error("Enter a username or profile URL.");
               const result = await runner.resolve(
                 value,
                 isPost ? "commenters" : mode,
@@ -307,7 +557,7 @@ function AddDialog({
           }}
         >
           <label className="field">
-            Username or Instagram URL
+            {manual ? "Username or profile URL" : "Username or Instagram URL"}
             <input
               autoFocus
               required
@@ -316,7 +566,7 @@ function AddDialog({
               placeholder="@username or https://instagram.com/…"
             />
           </label>
-          {isPost ? (
+          {!manual && isPost ? (
             <div className="notice">
               <Users size={18} />
               <span>Commenters, including replies</span>
@@ -341,17 +591,6 @@ function AddDialog({
               ))}
             </fieldset>
           ) : null}
-          {!isPost && (
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => setMode(mode === "single" ? "both" : "single")}
-            >
-              {mode === "single"
-                ? "Collect from a source instead"
-                : "Add a single candidate instead"}
-            </button>
-          )}
           {busy && (
             <div className="notice">
               Pause the current collection before adding another account.
@@ -1298,6 +1537,10 @@ function App() {
   const [dialog, setDialog] = useState<
     "mission" | "rename" | "add" | "settings" | "history" | "delete" | null
   >(null);
+  const [showIntro, setShowIntro] = useState(
+    () => localStorage.getItem("instafinderIntroSeen") !== "1",
+  );
+  const [menuOpen, setMenuOpen] = useState(false);
   const [addInitial, setAddInitial] = useState<{ value: string; mode: Mode }>();
   const [message, setMessage] = useState<{
     text: string;
@@ -1357,6 +1600,13 @@ function App() {
     window.addEventListener("pagehide", listener);
     return () => window.removeEventListener("pagehide", listener);
   }, []);
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [selected, dialog]);
+  const finishIntro = () => {
+    localStorage.setItem("instafinderIntroSeen", "1");
+    setShowIntro(false);
+  };
   const collect = (p: Profile) => {
     setAddInitial({ value: p.userName, mode: "both" });
     setDialog("add");
@@ -1460,14 +1710,16 @@ function App() {
                   <h1>{mission.name}</h1>
                 </div>
                 <div className="heading-actions">
-                  <button
-                    className="icon-button"
-                    aria-label="Rename mission"
-                    title="Rename mission"
-                    onClick={() => setDialog("rename")}
-                  >
-                    <MoreHorizontal size={20} />
-                  </button>
+                  <MissionMenu
+                    open={menuOpen}
+                    setOpen={setMenuOpen}
+                    busy={!!activeRun}
+                    edit={() => setDialog("rename")}
+                    add={() => {
+                      setAddInitial({ value: "", mode: "single" });
+                      setDialog("add");
+                    }}
+                  />
                   <button
                     className="icon-button"
                     aria-label="Delete mission"
@@ -1518,7 +1770,7 @@ function App() {
                   toast={toast}
                   collect={collect}
                   busy={!!activeRun}
-                  modalOpen={!!dialog}
+                  modalOpen={!!dialog || showIntro || menuOpen}
                   active={tab === "review"}
                 />
               </div>
@@ -1581,34 +1833,14 @@ function App() {
         />
       )}
       {dialog === "delete" && mission && (
-        <Dialog title="Delete this mission?" close={() => setDialog(null)}>
-          <p className="muted">
-            “{mission.name}” and its candidate decisions will be removed. Shared
-            profiles, connections, and collection history stay saved.
-          </p>
-          <div className="dialog-actions">
-            <button
-              className="button secondary"
-              onClick={() => setDialog(null)}
-            >
-              Keep mission
-            </button>
-            <button
-              className="button danger"
-              onClick={() =>
-                void deleteMission(mission.id)
-                  .then(() => {
-                    setDialog(null);
-                    toast("Mission deleted. Shared data is preserved.");
-                  })
-                  .catch((e) => toast(errorText(e)))
-              }
-            >
-              Delete mission
-            </button>
-          </div>
-        </Dialog>
+        <DeleteMissionDialog
+          mission={mission}
+          close={() => setDialog(null)}
+          toast={toast}
+          busy={!!activeRun}
+        />
       )}
+      {showIntro && <IntroDialog close={finishIntro} />}
       {message && (
         <div className="toast" role="status">
           <Check size={17} />

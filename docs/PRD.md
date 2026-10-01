@@ -4,7 +4,8 @@ InstaFinder is a local, single-user Chrome extension for finding a person among 
 
 ## Missions and candidates
 
-- Create a mission with a name; rename or delete it later.
+- Create a mission with a name; rename it through the three-dot menu.
+- Delete a mission and its candidates that are unused by other missions. Offer an unchecked option to also delete its shared candidates across missions; keep unrelated data and excluded source-only profiles. Remove affected relationships and invalidate affected cached collections.
 - Add one Instagram profile or collect followers, following, both, or commenters using a username or Instagram URL. CSV import is not included.
 - Collect commenters from all accessible posts/reels of a profile, or only the specific post/reel URL provided. Include reply authors.
 - Share saved profiles and observed relationships across missions; keep candidate membership and review decisions mission-specific.
@@ -36,7 +37,7 @@ InstaFinder is a local, single-user Chrome extension for finding a person among 
 ## Local data and usability
 
 - Use React and IndexedDB with Chrome's unlimitedStorage permission; no 5/10/50 MB application limit.
-- Use a minimal responsive light interface with **Add source** as the main action. Keep single-candidate addition secondary; omit taglines, tutorial copy, and redundant statistics. Retain compact progress, empty states, and photo refresh.
+- Use a minimal responsive light interface with **Add source** as the main action. Put **Edit mission name** and **Add Candidate Manually** in a small three-dot menu. Show four short first-visit cards explaining the goal, missions, sources, and candidate review; keep the main interface free of explanatory copy and redundant statistics. Retain compact progress, empty states, and photo refresh.
 - Provide versioned full-data backup and restore in Settings. Removing the extension removes its local data, so backups matter.
 - Install/build with npm; use as an unpacked Chrome extension. No Node version pin or enforced version check, no separate server or SQLite installation.
 
