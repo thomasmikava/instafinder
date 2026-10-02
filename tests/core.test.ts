@@ -25,6 +25,7 @@ import {
   shortcodeId,
 } from "../src/instagram";
 import { Runner, nextCheckpoint } from "../src/runner";
+import { collectionHistory, hideCollectionHistory } from "../src/history";
 import type { Profile, Resolved, Run } from "../src/types";
 const profile = (id: string, userName = `user${id}`): Profile => ({
   id,
@@ -54,6 +55,132 @@ async function setup() {
   );
   return { d, m };
 }
+test("clearing superseded incomplete history preserves observations, decisions, cached results and backups", async () => {
+  const { d, m } = await setup();
+  await setSource(m.id, "1", true, d);
+  await applyObservation(
+    { follows: [{ followerId: "2", followingId: "1", lastSeenAt: 1 }] },
+    d,
+  );
+  await decide(m.id, "2", "possible", d);
+  const old: Run = {
+    id: "old",
+    key: "profile:1:followers",
+    sourceId: "1",
+    targetLabel: "user1",
+    mode: "followers",
+    scope: "profile",
+    method: "direct",
+    status: "partial",
+    createdAt: 1,
+    updatedAt: 2,
+    checkpoint: { ...cp },
+  };
+  await d.runs.bulkPut([
+    old,
+    {
+      ...old,
+      id: "new",
+      method: "page",
+      status: "completed",
+      createdAt: 3,
+      updatedAt: 4,
+      completedAt: 4,
+      checkpoint: { ...cp, stage: "done" },
+    },
+  ]);
+  await d.results.put({ runId: old.id, kind: "followers", profileId: "2" });
+  await d.runLinks.put({ runId: old.id, missionId: m.id });
+  const before = await exportBackup(d);
+  assert.equal(
+    (await collectionHistory(0, d)).rows.find((r) => r.id === old.id)?.canHide,
+    true,
+  );
+  await hideCollectionHistory(old.id, d);
+  assert.deepEqual(
+    (await collectionHistory(0, d)).rows.map((r) => r.id),
+    ["new"],
+  );
+  assert.equal((await collectionHistory(0, d)).total, 1);
+  const after = await exportBackup(d);
+  assert.ok(
+    after.tables.runs.find((r) => r.id === old.id)?.historyHiddenAt > 0,
+  );
+  for (const name of Object.keys(before.tables).filter(
+    (name) => name !== "runs",
+  ))
+    assert.deepEqual(after.tables[name], before.tables[name]);
+  const saved = await d.runs.get(old.id);
+  const { historyHiddenAt, ...rest } = saved!;
+  assert.deepEqual(rest, old);
+  const restored = database();
+  await restoreBackup(after, restored);
+  assert.equal((await collectionHistory(0, restored)).total, 1);
+  assert.equal(
+    (await restored.candidates.get([m.id, "2"]))?.decision,
+    "possible",
+  );
+  assert.equal((await restored.candidates.get([m.id, "2"]))?.score, 1);
+  await restored.delete();
+  await d.delete();
+});
+test("history clearing requires a newer completed collection of the exact source, action and scope", async () => {
+  const d = database();
+  const old: Run = {
+    id: "old",
+    key: "post:10:commenters",
+    sourceId: "1",
+    targetLabel: "user1",
+    mode: "commenters",
+    scope: "post",
+    targetPostId: "10",
+    status: "partial",
+    createdAt: 1,
+    updatedAt: 2,
+    checkpoint: { ...cp, stage: "comments" },
+  };
+  const newer: Run = {
+    ...old,
+    id: "new",
+    status: "completed",
+    createdAt: 3,
+    updatedAt: 4,
+  };
+  for (const change of [
+    { status: "partial" },
+    { updatedAt: 1 },
+    { sourceId: "2" },
+    { mode: "likers" },
+    { scope: "profile" },
+    { targetPostId: "11" },
+  ]) {
+    await d.runs.bulkPut([old, { ...newer, ...change } as Run]);
+    assert.equal(
+      (await collectionHistory(0, d)).rows.find((r) => r.id === old.id)
+        ?.canHide,
+      false,
+    );
+    await assert.rejects(
+      hideCollectionHistory(old.id, d),
+      /Only older unfinished/,
+    );
+  }
+  await d.runs.put(newer);
+  assert.equal(
+    (await collectionHistory(0, d)).rows.find((r) => r.id === old.id)?.canHide,
+    true,
+  );
+  await assert.rejects(
+    hideCollectionHistory(newer.id, d),
+    /Only older unfinished/,
+  );
+  await d.runs.update(old.id, { status: "running" });
+  await assert.rejects(
+    hideCollectionHistory(old.id, d),
+    /Only older unfinished/,
+  );
+  await d.delete();
+});
 test("directional and mutual follows count once; duplicate observations and self follows do not inflate scores", async () => {
   const { d, m } = await setup();
   await setSource(m.id, "1", true, d);
@@ -434,9 +561,32 @@ test("username and profile/post/reel input parsing and lossless shortcode IDs", 
     parseInput("https://www.instagram.com/reel/ABC_-/?igsh=x").type,
     "post",
   );
+  for (const path of [
+    "/beerrestaurant.cz/p/Dd0vnaQjEhM/",
+    "/beerrestaurant.cz/p/Dd0vnaQjEhM/liked_by/",
+  ]) {
+    assert.deepEqual(
+      parseInput(`https://www.instagram.com${path}?igsh=fixture#fragment`),
+      {
+        type: "post",
+        shortcode: "Dd0vnaQjEhM",
+        url: "https://www.instagram.com/p/Dd0vnaQjEhM/",
+      },
+    );
+  }
+  assert.deepEqual(
+    parseInput("https://instagram.com/beerrestaurant.cz/reel/ABC_-/"),
+    {
+      type: "post",
+      shortcode: "ABC_-",
+      url: "https://www.instagram.com/reel/ABC_-/",
+    },
+  );
   assert.throws(() => parseInput("https://instagram.com.evil.test/name/"));
   assert.throws(() => parseInput("https://instagram.com/accounts/login/"));
   assert.throws(() => parseInput("http://instagram.com/alice/"));
+  assert.throws(() => parseInput("https://instagram.com/accounts/p/BA/"));
+  assert.throws(() => parseInput("https://instagram.com/beerrestaurant.cz/p/"));
   assert.equal(shortcodeId("BA"), "64");
   assert.ok(
     BigInt(shortcodeId("ZZZZZZZZZZZZ")) > BigInt(Number.MAX_SAFE_INTEGER),

@@ -199,14 +199,18 @@ export async function applyObservation(
       }
       await database.follows.put(f);
     }
-    for (const c of observation.comments || []) {
-      const post = await database.posts.get(c.postId);
-      if (!post || post.ownerId !== c.ownerId)
-        throw new Error("Comment owner does not match its post.");
-      if (!(await database.comments.get([c.postId, c.profileId])))
-        delta(c.ownerId, c.profileId);
-      await database.comments.put(c);
-    }
+    for (const [table, items] of [
+      [database.comments, observation.comments || []],
+      [database.likes, observation.likes || []],
+    ] as const)
+      for (const c of items) {
+        const post = await database.posts.get(c.postId);
+        if (!post || post.ownerId !== c.ownerId)
+          throw new Error("Comment owner does not match its post.");
+        if (!(await table.get([c.postId, c.profileId])))
+          delta(c.ownerId, c.profileId);
+        await table.put(c);
+      }
     for (const a of deltas.values()) {
       const old = await database.affinities.get([a.sourceId, a.profileId]);
       await database.affinities.put({
@@ -261,7 +265,10 @@ export async function reuseRun(
   await database.transaction("rw", database.tables, async () => {
     const run = await database.runs.get(runId);
     if (!run) throw new Error("Collection not found.");
-    if (run.mode !== "single")
+    if (
+      run.mode !== "single" &&
+      !(await database.sources.get([missionId, run.sourceId]))
+    )
       await database.sources.put({
         missionId,
         profileId: run.sourceId,
@@ -334,7 +341,10 @@ export async function rebuildAffinities(database = db) {
     add(f.followerId, f.followingId);
     add(f.followingId, f.followerId);
   }
-  for (const c of await database.comments.toArray())
+  for (const c of [
+    ...(await database.comments.toArray()),
+    ...(await database.likes.toArray()),
+  ])
     add(c.ownerId, c.profileId);
   await database.affinities.clear();
   if (weights.size) await database.affinities.bulkPut([...weights.values()]);
@@ -347,7 +357,10 @@ export async function deleteMission(
   deleteSharedCandidates = false,
 ) {
   await database.transaction("rw", database.tables, async () => {
-    if (await database.runs.where("status").equals("running").count())
+    if (
+      (await database.runs.where("status").equals("running").count()) ||
+      (await database.pendingPageJobs.where("status").equals("running").count())
+    )
       throw new Error("Pause collection before deleting a mission.");
     // Keep excluded source-only profiles; included sources are review candidates too.
     const members = await database.candidates
@@ -357,6 +370,7 @@ export async function deleteMission(
     const targets = members
       .filter((c) => c.base || c.visible === 1)
       .map((c) => c.profileId);
+    await database.pendingPageJobs.where("missionId").equals(id).delete();
     await database.missions.delete(id);
     await database.candidates.where("missionId").equals(id).delete();
     await database.sources.where("missionId").equals(id).delete();
@@ -403,14 +417,15 @@ export async function deleteMission(
     await database.sources.where("profileId").anyOf(ids).delete();
     await database.follows.where("followerId").anyOf(ids).delete();
     await database.follows.where("followingId").anyOf(ids).delete();
-    await database.comments
-      .filter(
-        (c) =>
-          removed.has(c.profileId) ||
-          removed.has(c.ownerId) ||
-          postIds.has(c.postId),
-      )
-      .delete();
+    for (const table of [database.comments, database.likes])
+      await table
+        .filter(
+          (c) =>
+            removed.has(c.profileId) ||
+            removed.has(c.ownerId) ||
+            postIds.has(c.postId),
+        )
+        .delete();
     await database.posts.bulkDelete([...postIds]);
     await database.results
       .filter((r) => removed.has(r.profileId) || erasedRuns.has(r.runId))
@@ -439,6 +454,7 @@ export async function deleteMission(
         });
     }
     for (const table of [
+      database.pageReceipts,
       database.runPosts,
       database.threads,
       database.seenComments,
@@ -448,7 +464,7 @@ export async function deleteMission(
           (r) =>
             erasedRuns.has(r.runId) ||
             affected.has(r.runId) ||
-            postIds.has(r.postId),
+            ("postId" in r && postIds.has(r.postId)),
         )
         .delete();
     await rebuildAffinities(database);

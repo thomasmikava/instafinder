@@ -7,6 +7,7 @@ import type {
   Follow,
   Post,
   CommentLink,
+  LikeLink,
   Affinity,
   Run,
   RunLink,
@@ -15,6 +16,8 @@ import type {
   Thread,
   SeenComment,
   Settings,
+  PendingPageJob,
+  PageReceipt,
 } from "./types";
 export class Database extends Dexie {
   profiles!: Table<Profile, string>;
@@ -24,6 +27,7 @@ export class Database extends Dexie {
   follows!: Table<Follow, [string, string]>;
   posts!: Table<Post, string>;
   comments!: Table<CommentLink, [string, string]>;
+  likes!: Table<LikeLink, [string, string]>;
   affinities!: Table<Affinity, [string, string]>;
   runs!: Table<Run, string>;
   runLinks!: Table<RunLink, [string, string]>;
@@ -32,6 +36,8 @@ export class Database extends Dexie {
   threads!: Table<Thread, [string, string, string]>;
   seenComments!: Table<SeenComment, [string, string, string]>;
   settings!: Table<Settings, string>;
+  pendingPageJobs!: Table<PendingPageJob, string>;
+  pageReceipts!: Table<PageReceipt, string>;
   constructor(name = "instafinder") {
     super(name);
     this.version(1).stores({
@@ -52,6 +58,15 @@ export class Database extends Dexie {
       seenComments: "[runId+postId+commentId], runId",
       settings: "id",
     });
+    this.version(2)
+      .stores({
+        pendingPageJobs: "id, missionId, status, updatedAt",
+        pageReceipts: "id, runId, [runId+epoch]",
+      })
+      .upgrade(async (tx) => {
+        await tx.table("runs").toCollection().modify({ method: "direct" });
+      });
+    this.version(3).stores({ likes: "[postId+profileId], ownerId, profileId" });
   }
 }
 export const db = new Database();
@@ -60,6 +75,8 @@ export async function preferences(database = db): Promise<Settings> {
     (await database.settings.get("preferences")) || {
       id: "preferences",
       delaySeconds: 5,
+      pageDelaySeconds: 1.5,
+      collectionMethod: "page",
     }
   );
 }

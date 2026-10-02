@@ -9,7 +9,12 @@
     "watch": "node scripts/build.mjs --watch",
     "test": "node scripts/test.mjs",
     "test:browser": "npm run build && node scripts/browser-test.mjs",
-    "format": "prettier --write src tests scripts public docs README.md package.json tsconfig.json"
+    "format": "prettier --write src tests scripts public docs README.md package.json tsconfig.json",
+    "test:page-browser": "npm run build && node scripts/page-browser-test.mjs",
+    "test:history-browser": "npm run build && node scripts/history-browser-test.mjs",
+    "test:parallel-browser": "npm run build && node scripts/parallel-browser-test.mjs",
+    "test:likers-browser": "npm run build && node scripts/likers-browser-test.mjs",
+    "test:comments-browser": "npm run build && node scripts/comments-browser-test.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.6",

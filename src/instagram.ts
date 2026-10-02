@@ -1,6 +1,7 @@
 import { parse } from "lossless-json";
 import { preferences, type Database, db } from "./db";
 import type { CommentItem, Input, Page, Post, Profile } from "./types";
+import { postFromPath } from "./instagram-url";
 export class CollectionError extends Error {
   constructor(
     message: string,
@@ -33,14 +34,10 @@ export function parseInput(value: string): Input {
   )
     throw new Error("Use an HTTPS instagram.com URL.");
   const parts = url.pathname.split("/").filter(Boolean);
+  const post = postFromPath(url.pathname);
+  if (post) return post;
   if (["p", "reel", "reels", "tv"].includes(parts[0])) {
-    if (!parts[1] || !/^[A-Za-z0-9_-]+$/.test(parts[1]))
-      throw new Error("This post URL is missing its code.");
-    return {
-      type: "post",
-      shortcode: parts[1],
-      url: `https://www.instagram.com/${parts[0] === "p" ? "p" : "reel"}/${parts[1]}/`,
-    };
+    throw new Error("This post URL is missing its code.");
   }
   if (
     parts.length !== 1 ||

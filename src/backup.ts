@@ -1,4 +1,5 @@
 import { db, preferences, type Database } from "./db";
+import { validBinding } from "./page-protocol";
 import { rebuildAffinities } from "./data";
 const names = [
   "profiles",
@@ -8,6 +9,7 @@ const names = [
   "follows",
   "posts",
   "comments",
+  "likes",
   "affinities",
   "runs",
   "runLinks",
@@ -16,10 +18,12 @@ const names = [
   "threads",
   "seenComments",
   "settings",
+  "pendingPageJobs",
+  "pageReceipts",
 ] as const;
 export interface Backup {
   format: "instafinder";
-  version: 1;
+  version: 1 | 2 | 3;
   createdAt: string;
   tables: Record<string, Record<string, any>[]>;
 }
@@ -31,22 +35,27 @@ export async function exportBackup(database = db): Promise<Backup> {
     tables.settings = tables.settings.map((s) => ({
       id: "preferences",
       delaySeconds: s.delaySeconds,
+      pageDelaySeconds: s.pageDelaySeconds ?? 1.5,
       ...(s.cooldownUntil ? { cooldownUntil: s.cooldownUntil } : {}),
+      ...(s.pageCooldownUntil
+        ? { pageCooldownUntil: s.pageCooldownUntil }
+        : {}),
+      collectionMethod: s.collectionMethod || "page",
     }));
     return {
       format: "instafinder",
-      version: 1,
+      version: 3,
       createdAt: new Date().toISOString(),
       tables,
     };
   });
 }
 export function validateBackup(input: unknown): Backup {
-  const b = input as Backup;
+  const b = structuredClone(input) as Backup;
   if (
     !b ||
     b.format !== "instafinder" ||
-    b.version !== 1 ||
+    ![1, 2, 3].includes(b.version) ||
     !b.tables ||
     typeof b.tables !== "object"
   )
@@ -57,6 +66,11 @@ export function validateBackup(input: unknown): Backup {
     )
   )
     throw new Error("Backup contains unknown tables.");
+  if (b.version < 3) b.tables.likes = [];
+  if (b.version === 1) {
+    b.tables.pendingPageJobs = [];
+    b.tables.pageReceipts = [];
+  }
   const rejectAuth = (value: unknown): void => {
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
@@ -78,6 +92,7 @@ export function validateBackup(input: unknown): Backup {
     follows: ["followerId", "followingId"],
     posts: ["id", "ownerId"],
     comments: ["postId", "profileId", "ownerId"],
+    likes: ["postId", "profileId", "ownerId"],
     affinities: ["sourceId", "profileId"],
     runs: ["id", "key", "sourceId"],
     runLinks: ["runId", "missionId"],
@@ -86,6 +101,8 @@ export function validateBackup(input: unknown): Backup {
     threads: ["runId", "postId", "commentId"],
     seenComments: ["runId", "postId", "commentId"],
     settings: ["id"],
+    pendingPageJobs: ["id", "missionId"],
+    pageReceipts: ["id", "runId", "epoch", "targetId"],
   };
   for (const name of names) {
     if (!Array.isArray(b.tables[name]))
@@ -137,19 +154,40 @@ export function validateBackup(input: unknown): Backup {
   for (const f of b.tables.follows)
     if (!profiles.has(f.followerId) || !profiles.has(f.followingId))
       throw new Error("Invalid follow reference.");
-  for (const c of b.tables.comments)
+  for (const c of [...b.tables.comments, ...b.tables.likes])
     if (!profiles.has(c.profileId) || posts.get(c.postId) !== c.ownerId)
       throw new Error("Invalid comment reference.");
   for (const r of b.tables.runs)
     if (
       !profiles.has(r.sourceId) ||
-      !["single", "followers", "following", "both", "commenters"].includes(
-        r.mode,
-      ) ||
+      (r.historyHiddenAt !== undefined &&
+        (!Number.isFinite(r.historyHiddenAt) || r.historyHiddenAt <= 0)) ||
+      (r.method !== undefined && !["page", "direct"].includes(r.method)) ||
+      (r.pageInput !== undefined &&
+        !validBinding({
+          jobId: r.id,
+          input: r.pageInput,
+          mode: r.mode,
+          sourceId: r.sourceId,
+          postId: r.targetPostId,
+        })) ||
+      ![
+        "single",
+        "followers",
+        "following",
+        "both",
+        "commenters",
+        "likers",
+      ].includes(r.mode) ||
       !["profile", "post"].includes(r.scope) ||
-      !["followers", "following", "media", "comments", "done"].includes(
-        r.checkpoint?.stage,
-      ) ||
+      ![
+        "followers",
+        "following",
+        "media",
+        "comments",
+        "likes",
+        "done",
+      ].includes(r.checkpoint?.stage) ||
       !Array.isArray(r.checkpoint.seenCursors) ||
       ![
         "running",
@@ -216,9 +254,49 @@ export function validateBackup(input: unknown): Backup {
       !Number.isFinite(s.delaySeconds) ||
       s.delaySeconds < 1 ||
       s.delaySeconds > 3600 ||
-      invalidCount(s.cooldownUntil)
+      (s.pageDelaySeconds !== undefined &&
+        (!Number.isFinite(s.pageDelaySeconds) ||
+          s.pageDelaySeconds < 0.5 ||
+          s.pageDelaySeconds > 3600)) ||
+      invalidCount(s.cooldownUntil) ||
+      invalidCount(s.pageCooldownUntil) ||
+      (s.collectionMethod !== undefined &&
+        !["page", "direct"].includes(s.collectionMethod))
     )
       throw new Error("Invalid request delay.");
+  for (const j of b.tables.pendingPageJobs)
+    if (
+      !missions.has(j.missionId) ||
+      !validBinding({ jobId: j.id, input: j.input, mode: j.mode }) ||
+      typeof j.automatic !== "boolean" ||
+      !["running", "paused", "partial", "failed", "cooldown"].includes(
+        j.status,
+      ) ||
+      invalidCount(j.createdAt) ||
+      invalidCount(j.updatedAt) ||
+      invalidCount(j.retryAt)
+    )
+      throw new Error("Invalid pending page collection.");
+  for (const r of b.tables.pageReceipts)
+    if (
+      !runs.has(r.runId) ||
+      ![
+        "followers",
+        "following",
+        "feed",
+        "reels",
+        "comments",
+        "replies",
+        "likes",
+      ].includes(r.kind) ||
+      !/^\d+(?::\d+)?$/.test(r.targetId) ||
+      typeof r.requestCursor !== "string" ||
+      !Array.isArray(r.nextCursors) ||
+      r.nextCursors.some((c: unknown) => typeof c !== "string") ||
+      typeof r.terminal !== "boolean" ||
+      invalidCount(r.updatedAt)
+    )
+      throw new Error("Invalid page receipt.");
   return b;
 }
 export async function restoreBackup(input: unknown, database = db) {
@@ -247,6 +325,8 @@ export async function restoreBackup(input: unknown, database = db) {
           };
         });
       if (name === "runs")
+        rows = rows.map((r) => ({ ...r, method: r.method || "direct" }));
+      if (name === "runs" || name === "pendingPageJobs")
         rows = rows.map((r) =>
           r.status === "running"
             ? {
@@ -260,7 +340,12 @@ export async function restoreBackup(input: unknown, database = db) {
         rows = rows.map((s) => ({
           id: "preferences",
           delaySeconds: s.delaySeconds,
+          pageDelaySeconds: s.pageDelaySeconds ?? 1.5,
           ...(s.cooldownUntil ? { cooldownUntil: s.cooldownUntil } : {}),
+          ...(s.pageCooldownUntil
+            ? { pageCooldownUntil: s.pageCooldownUntil }
+            : {}),
+          collectionMethod: s.collectionMethod || "page",
         }));
       if (rows.length) await database.table(name).bulkPut(rows);
     }
@@ -272,6 +357,12 @@ export async function restoreBackup(input: unknown, database = db) {
       cooldownUntil: Math.max(
         localTiming.cooldownUntil || 0,
         restoredTiming.cooldownUntil || 0,
+      ),
+    });
+    await database.settings.update("preferences", {
+      pageCooldownUntil: Math.max(
+        localTiming.pageCooldownUntil || 0,
+        restoredTiming.pageCooldownUntil || 0,
       ),
     });
     await rebuildAffinities(database);

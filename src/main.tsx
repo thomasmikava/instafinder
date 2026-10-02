@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Compass,
+  CircleHelp,
   Database as DatabaseIcon,
   Flag,
   Heart,
@@ -46,6 +47,8 @@ import {
 } from "./backup";
 import { CollectionError, parseInput } from "./instagram";
 import { runner } from "./runner";
+import { acquireAvatar } from "./avatars";
+import { collectionHistory, hideCollectionHistory } from "./history";
 import type { Decision, Mission, Mode, Profile, Resolved, Run } from "./types";
 import "./styles.css";
 const labels: Record<Decision, string> = {
@@ -96,12 +99,31 @@ function Avatar({
   large?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [profile?.avatarUrl, profile?.updatedAt]);
+  const [photo, setPhoto] = useState<{ url: string; src: string }>();
+  useEffect(() => {
+    setFailed(false);
+    setPhoto(undefined);
+    const url = profile?.avatarUrl;
+    if (!url) return;
+    let active = true;
+    const image = acquireAvatar(url);
+    image.ready
+      .then((src) => {
+        if (active) setPhoto({ url, src });
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+      image.release();
+    };
+  }, [profile?.avatarUrl, profile?.updatedAt]);
   return (
     <div className={large ? "avatar avatar-large" : "avatar"}>
-      {profile?.avatarUrl && !failed ? (
+      {profile && photo?.url === profile.avatarUrl && !failed ? (
         <img
-          src={profile.avatarUrl}
+          src={photo.src}
           alt={profile.fullName || profile.userName}
           onError={() => setFailed(true)}
           referrerPolicy="no-referrer"
@@ -135,6 +157,7 @@ function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-label={title}
       className={`dialog ${wide ? "wide" : ""}`}
       onCancel={(e) => {
         e.preventDefault();
@@ -163,6 +186,50 @@ function Dialog({
       </div>
       {children}
     </dialog>
+  );
+}
+function PointsHelp({ open }: { open: () => void }) {
+  return (
+    <button
+      className="points-help"
+      aria-label="How points are calculated"
+      aria-haspopup="dialog"
+      title="How points are calculated"
+      onClick={open}
+    >
+      <CircleHelp size={14} aria-hidden="true" />
+    </button>
+  );
+}
+function PointsDialog({ close }: { close: () => void }) {
+  return (
+    <Dialog title="How points work" close={close}>
+      <p className="dialog-intro">
+        Points come from saved interactions with this mission’s sources. More
+        points move an unreviewed candidate nearer the front of the review
+        queue.
+      </p>
+      <ul className="points-rules">
+        <li>
+          <span>+1</span> They follow a source.
+        </li>
+        <li>
+          <span>+1</span> A source follows them.
+        </li>
+        <li>
+          <span>+1</span> For each source post or reel they commented on,
+          including replies.
+        </li>
+        <li>
+          <span>+1</span> For each source post or reel they liked.
+        </li>
+      </ul>
+      <p className="dialog-intro points-note">
+        Mutual following earns 2 points. Comments and likes each count once per
+        post, even if repeated. Follower totals and self-interactions don’t
+        count.
+      </p>
+    </Dialog>
   );
 }
 const introCards = [
@@ -547,10 +614,8 @@ function AddDialog({
             try {
               if (manual && isPost)
                 throw new Error("Enter a username or profile URL.");
-              const result = await runner.resolve(
-                value,
-                isPost ? "commenters" : mode,
-              );
+              const selectedMode = isPost ? "commenters" : mode;
+              const result = await runner.resolve(value, selectedMode);
               setResolved(result);
               setPrevious(await runner.previous(result));
             } catch (err) {
@@ -864,6 +929,7 @@ function Review({
   busy,
   modalOpen,
   active,
+  explainPoints,
 }: {
   mission: Mission;
   toast: Toast;
@@ -871,6 +937,7 @@ function Review({
   busy: boolean;
   modalOpen: boolean;
   active: boolean;
+  explainPoints: () => void;
 }) {
   const top = useLiveQuery(
     () => candidatePage(mission.id, "unreviewed", "", 0, 1),
@@ -1000,19 +1067,27 @@ function Review({
                   <ArrowUpRight size={21} />
                 </a>
               </div>
-              <button
-                className="refresh-photo"
-                disabled={busy}
-                onClick={() =>
-                  void runner
-                    .refreshProfile(card.profile.userName)
-                    .then(() => toast("Profile refreshed."))
-                    .catch((e) => toast(errorText(e)))
-                }
-              >
-                <RefreshCw size={12} />
-                Refresh photo
-              </button>
+              <div className="review-card-footer">
+                <div className="review-points">
+                  <span aria-label="Candidate points">
+                    {number(card.score)} {card.score === 1 ? "point" : "points"}
+                  </span>
+                  <PointsHelp open={explainPoints} />
+                </div>
+                <button
+                  className="refresh-photo"
+                  disabled={busy}
+                  onClick={() =>
+                    void runner
+                      .refreshProfile(card.profile.userName, mission.id)
+                      .then(() => toast("Profile refreshed."))
+                      .catch((e) => toast(errorText(e)))
+                  }
+                >
+                  <RefreshCw size={12} />
+                  Refresh photo
+                </button>
+              </div>
             </article>
             <div className="decision-grid">
               <button className="decision no" onClick={() => void action("no")}>
@@ -1073,10 +1148,12 @@ function CandidateList({
   mission,
   toast,
   collect,
+  explainPoints,
 }: {
   mission: Mission;
   toast: Toast;
   collect: (p: Profile) => void;
+  explainPoints: () => void;
 }) {
   const [filter, setFilter] = useState<Decision | "all">("all");
   const [search, setSearch] = useState("");
@@ -1125,6 +1202,11 @@ function CandidateList({
           <thead>
             <tr>
               <th>Person</th>
+              <th className="points-column" scope="col">
+                <span className="points-heading">
+                  Points <PointsHelp open={explainPoints} />
+                </span>
+              </th>
               <th>Your decision</th>
               <th>Source</th>
               <th>
@@ -1151,6 +1233,7 @@ function CandidateList({
                     </div>
                   </td>
 
+                  <td className="table-points">{number(c.score)}</td>
                   <td>
                     <select
                       className={`decision-select ${c.decision}`}
@@ -1257,34 +1340,77 @@ function HistoryDialog({
   busy: boolean;
 }) {
   const [page, setPage] = useState(0);
-  const history = useLiveQuery(async () => {
-    const runs = await db.runs
-      .orderBy("updatedAt")
-      .reverse()
-      .offset(page * 20)
-      .limit(20)
-      .toArray();
-    return Promise.all(
-      runs.map(async (r) => ({
-        ...r,
-        count: new Set(
-          (await db.results.where("runId").equals(r.id).toArray()).map(
-            (p) => p.profileId,
-          ),
-        ).size,
-      })),
-    );
-  }, [page]);
-  const count = useLiveQuery(() => db.runs.count());
+  const history = useLiveQuery(() => collectionHistory(page), [page]);
+  const directBusy = useLiveQuery(() =>
+    db.runs
+      .where("status")
+      .equals("running")
+      .filter((run) => run.method !== "page")
+      .count(),
+  );
+  const count = history?.total;
+  useEffect(() => {
+    if (count !== undefined && page > Math.max(0, Math.ceil(count / 20) - 1))
+      setPage(Math.max(0, Math.ceil(count / 20) - 1));
+  }, [count, page]);
+  const pending = useLiveQuery(() =>
+    db.pendingPageJobs.orderBy("updatedAt").reverse().toArray(),
+  );
   return (
     <Dialog title="Collection history" close={close} wide>
       <div className="history-list">
-        {history?.map((run) => (
+        {pending?.map((job) => (
+          <div className="history-row" key={job.id}>
+            <div>
+              <strong>
+                {job.input.type === "profile"
+                  ? `@${job.input.username}`
+                  : "Post/reel"}
+              </strong>
+              <p>
+                Instagram page · {date(job.updatedAt)} · {job.status}
+              </p>
+              {job.reason && <p>{job.reason}</p>}
+              {job.retryAt && job.retryAt > Date.now() && (
+                <p>Resume after {date(job.retryAt)}</p>
+              )}
+            </div>
+            <button
+              className="button small secondary"
+              disabled={
+                (job.status !== "running" && !!directBusy) ||
+                (!!job.retryAt && job.retryAt > Date.now())
+              }
+              onClick={() =>
+                void (
+                  job.status === "running"
+                    ? chrome.runtime
+                        .sendMessage({ type: "collector-pause", id: job.id })
+                        .then((reply) => {
+                          if (reply?.error) throw new Error(reply.error);
+                        })
+                    : runner.run(job.id)
+                ).catch((e) => toast(errorText(e)))
+              }
+            >
+              {job.status === "running" ? "Pause" : "Resume"}
+            </button>
+            <button
+              className="button small ghost"
+              disabled={job.status === "running"}
+              onClick={() => void db.pendingPageJobs.delete(job.id)}
+            >
+              Discard
+            </button>
+          </div>
+        ))}
+        {history?.rows.map((run) => (
           <div className="history-row" key={run.id}>
             <div>
               <strong>@{run.targetLabel}</strong>
               <p>
                 {run.mode === "both" ? "Followers + following" : run.mode} ·{" "}
+                {run.method === "page" ? "Instagram page" : "Direct requests"} ·{" "}
                 {number(run.count)} unique profiles · {date(run.updatedAt)}
               </p>
               {run.reason && <p className="history-reason">{run.reason}</p>}
@@ -1297,7 +1423,13 @@ function HistoryDialog({
               {run.status === "running" ? (
                 <button
                   className="button small secondary"
-                  onClick={() => runner.pause()}
+                  onClick={() =>
+                    run.method === "page"
+                      ? void chrome.runtime
+                          .sendMessage({ type: "collector-pause", id: run.id })
+                          .catch((e) => toast(errorText(e)))
+                      : runner.pause()
+                  }
                 >
                   <Pause size={13} />
                   Pause
@@ -1306,7 +1438,10 @@ function HistoryDialog({
                 run.checkpoint.stage !== "done" ? (
                 <button
                   className="button small secondary"
-                  disabled={busy || (!!run.retryAt && run.retryAt > Date.now())}
+                  disabled={
+                    (run.method === "page" ? !!directBusy : busy) ||
+                    (!!run.retryAt && run.retryAt > Date.now())
+                  }
                   onClick={() =>
                     void runner.run(run.id).catch((e) => toast(errorText(e)))
                   }
@@ -1317,7 +1452,7 @@ function HistoryDialog({
               ) : null}
               <button
                 className="button small ghost"
-                disabled={busy}
+                disabled={run.method === "page" ? !!directBusy : busy}
                 onClick={() => {
                   close();
                   collectAgain(run);
@@ -1325,11 +1460,27 @@ function HistoryDialog({
               >
                 Collect again
               </button>
+              {run.canHide && (
+                <button
+                  className="icon-button"
+                  aria-label={`Clear ${run.mode} for @${run.targetLabel} from history`}
+                  title="Clear from history. Saved profiles and connections stay."
+                  onClick={() =>
+                    void hideCollectionHistory(run.id)
+                      .then(() =>
+                        toast("Cleared from history. Saved data kept."),
+                      )
+                      .catch((e) => toast(errorText(e)))
+                  }
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
-      {!history?.length && (
+      {!history?.rows.length && !pending?.length && (
         <div className="empty small-empty">
           <DatabaseIcon size={28} />
           <h3>No collections yet.</h3>
@@ -1373,6 +1524,7 @@ function SettingsDialog({
   showWalkthrough: () => void;
 }) {
   const [delay, setDelay] = useState(5);
+  const [pageDelay, setPageDelay] = useState(1.5);
   const [backup, setBackup] = useState<Backup>();
   const [working, setWorking] = useState(false);
   const stats = useLiveQuery(async () => ({
@@ -1382,7 +1534,10 @@ function SettingsDialog({
   }));
   const [usage, setUsage] = useState<number>();
   useEffect(() => {
-    void preferences().then((p) => setDelay(p.delaySeconds));
+    void preferences().then((p) => {
+      setDelay(p.delaySeconds);
+      setPageDelay(p.pageDelaySeconds ?? 1.5);
+    });
     void navigator.storage?.estimate().then((s) => setUsage(s.usage));
   }, []);
   return (
@@ -1394,15 +1549,34 @@ function SettingsDialog({
           onSubmit={async (e) => {
             e.preventDefault();
             if (!Number.isFinite(delay) || delay < 1 || delay > 3600) return;
+            if (
+              !Number.isFinite(pageDelay) ||
+              pageDelay < 0.5 ||
+              pageDelay > 3600
+            )
+              return;
             await db.settings.put({
               ...(await preferences()),
               delaySeconds: delay,
+              pageDelaySeconds: pageDelay,
             });
             toast("Collection pace saved.");
           }}
         >
           <label className="field">
-            Delay in seconds
+            Page actions (seconds)
+            <input
+              type="number"
+              min={0.5}
+              max={3600}
+              step={0.5}
+              required
+              value={pageDelay}
+              onChange={(e) => setPageDelay(Number(e.target.value))}
+            />
+          </label>
+          <label className="field">
+            Direct requests (seconds)
             <input
               type="number"
               min={1}
@@ -1547,11 +1721,20 @@ function App() {
     db.missions.orderBy("createdAt").toArray(),
   );
   const [selected, setSelected] = useState(
-    localStorage.getItem("selectedMission") || "",
+    new URLSearchParams(location.hash.slice(1)).get("mission") ||
+      localStorage.getItem("selectedMission") ||
+      "",
   );
   const [tab, setTab] = useState<"review" | "candidates">("review");
   const [dialog, setDialog] = useState<
-    "mission" | "rename" | "add" | "settings" | "history" | "delete" | null
+    | "mission"
+    | "rename"
+    | "add"
+    | "settings"
+    | "history"
+    | "delete"
+    | "points"
+    | null
   >(null);
   const [showIntro, setShowIntro] = useState(
     () => localStorage.getItem("instafinderIntroSeen") !== "1",
@@ -1564,9 +1747,25 @@ function App() {
   }>();
   const toast: Toast = (text, action) => setMessage({ text, action });
   const mission = missions?.find((m) => m.id === selected);
-  const activeRun = useLiveQuery(() =>
-    db.runs.where("status").equals("running").first(),
-  );
+  const activeRun = useLiveQuery(async () => {
+    const run = await db.runs.where("status").equals("running").first();
+    if (run) return run;
+    const pending = await db.pendingPageJobs
+      .where("status")
+      .equals("running")
+      .first();
+    return pending
+      ? {
+          id: pending.id,
+          method: "page",
+          targetLabel:
+            pending.input.type === "profile"
+              ? pending.input.username
+              : "post/reel",
+          checkpoint: { stage: "opening Instagram" },
+        }
+      : undefined;
+  });
   const counts = useLiveQuery(async () => {
     if (!selected) return { total: 0, unreviewed: 0, possible: 0 };
     const values = await Promise.all([
@@ -1597,6 +1796,14 @@ function App() {
     if (missions && !missions.some((m) => m.id === selected))
       setSelected(missions[0]?.id || "");
   }, [missions, selected]);
+  useEffect(() => {
+    const select = () => {
+      const id = new URLSearchParams(location.hash.slice(1)).get("mission");
+      if (id) setSelected(id);
+    };
+    window.addEventListener("hashchange", select);
+    return () => window.removeEventListener("hashchange", select);
+  }, []);
   useEffect(() => {
     localStorage.setItem("selectedMission", selected);
   }, [selected]);
@@ -1630,6 +1837,20 @@ function App() {
   const collectAgain = (run: Run) => {
     if (!mission) {
       toast("Create or select a mission first.");
+      return;
+    }
+    if (run.method === "page") {
+      setDialog(null);
+      void chrome.runtime
+        .sendMessage({
+          type: "collector-again",
+          id: run.id,
+          missionId: mission.id,
+        })
+        .then((reply) => {
+          if (reply?.error) throw new Error(reply.error);
+        })
+        .catch((e) => toast(errorText(e)));
       return;
     }
     void (async () => {
@@ -1699,14 +1920,17 @@ function App() {
         </div>
       </aside>
       <main className="main">
-        {activeRun && (
+        {activeRun && activeRun.method !== "page" && (
           <div className="collection-banner" role="status">
             <LoaderCircle size={17} className="spin" />
             <div>
               <strong>Collecting @{activeRun.targetLabel}</strong>
               <span>
                 {number(activeCount || 0)} profiles saved ·{" "}
-                {activeRun.checkpoint.stage} · Keep this app tab open
+                {activeRun.checkpoint.stage} ·{" "}
+                {activeRun.method === "page"
+                  ? "Keep both tabs open"
+                  : "Keep this app tab open"}
               </span>
             </div>
             <button
@@ -1788,6 +2012,7 @@ function App() {
                   busy={!!activeRun}
                   modalOpen={!!dialog || showIntro || menuOpen}
                   active={tab === "review"}
+                  explainPoints={() => setDialog("points")}
                 />
               </div>
               <div hidden={tab !== "candidates"}>
@@ -1796,6 +2021,7 @@ function App() {
                   mission={mission}
                   toast={toast}
                   collect={collect}
+                  explainPoints={() => setDialog("points")}
                 />
               </div>
             </>
@@ -1844,6 +2070,7 @@ function App() {
           }}
         />
       )}
+      {dialog === "points" && <PointsDialog close={() => setDialog(null)} />}
       {dialog === "history" && (
         <HistoryDialog
           close={() => setDialog(null)}

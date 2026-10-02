@@ -1,5 +1,6 @@
 export type Decision = "unreviewed" | "no" | "unlikely" | "possible";
-export type Mode = "single" | "followers" | "following" | "both" | "commenters";
+export type Mode =
+  "single" | "followers" | "following" | "both" | "commenters" | "likers";
 export interface Profile {
   id: string;
   userName: string;
@@ -44,6 +45,7 @@ export interface Post {
   ownerId: string;
   url: string;
   commentCount?: number;
+  likeCount?: number;
 }
 export interface CommentLink {
   postId: string;
@@ -51,12 +53,14 @@ export interface CommentLink {
   ownerId: string;
   lastSeenAt: number;
 }
+export interface LikeLink extends CommentLink {}
 export interface Affinity {
   sourceId: string;
   profileId: string;
   score: number;
 }
-export type Stage = "followers" | "following" | "media" | "comments" | "done";
+export type Stage =
+  "followers" | "following" | "media" | "comments" | "likes" | "done";
 export type RunStatus =
   "paused" | "running" | "completed" | "partial" | "failed" | "cooldown";
 export interface Checkpoint {
@@ -71,7 +75,12 @@ export interface Checkpoint {
   stageCount: number;
   commentsDone?: boolean;
 }
+export type CollectionMethod = "page" | "direct";
 export interface Run {
+  method?: CollectionMethod;
+  pageInput?: Input;
+  pageEpoch?: string;
+  pageAutomatic?: boolean;
   id: string;
   key: string;
   sourceId: string;
@@ -84,6 +93,7 @@ export interface Run {
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
+  historyHiddenAt?: number;
   reason?: string;
   retryAt?: number;
   expected?: number;
@@ -125,14 +135,18 @@ export interface SeenComment {
 export interface Settings {
   id: string;
   delaySeconds: number;
+  pageDelaySeconds?: number;
   lastRequestAt?: number;
   cooldownUntil?: number;
+  pageCooldownUntil?: number;
+  collectionMethod?: CollectionMethod;
 }
 export interface Observation {
   profiles?: Profile[];
   follows?: Follow[];
   posts?: Post[];
   comments?: CommentLink[];
+  likes?: LikeLink[];
   run?: Run;
   results?: RunResult[];
   runPosts?: RunPost[];
@@ -165,4 +179,35 @@ export interface Resolved {
   key: string;
   mode: Mode;
   cached?: boolean;
+}
+
+export interface PendingPageJob {
+  id: string;
+  missionId: string;
+  input: Input;
+  mode: Mode;
+  automatic: boolean;
+  status: RunStatus;
+  createdAt: number;
+  updatedAt: number;
+  reason?: string;
+  retryAt?: number;
+}
+export interface PageReceipt {
+  id: string;
+  runId: string;
+  epoch: string;
+  kind:
+    | "followers"
+    | "following"
+    | "feed"
+    | "reels"
+    | "comments"
+    | "replies"
+    | "likes";
+  targetId: string;
+  requestCursor: string;
+  nextCursors: string[];
+  terminal: boolean;
+  updatedAt: number;
 }

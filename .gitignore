@@ -5,3 +5,37 @@ dist/
 .test-artifacts/
 *.backup.json
 .DS_Store
+
+.test-page-profile/
+.test-page-profile-late/
+
+.test-page-extension/
+
+# Local credentials and environment settings; sanitized templates may be shared.
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+
+# Local data, database sidecars, and diagnostic logs.
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+logs/
+*.log
+*.log.*
+npm-debug.log*

@@ -1,0 +1,157 @@
+{
+  "users": [
+    {
+      "pk": "700000001",
+      "pk_id": "700000001",
+      "strong_id__": "700000001",
+      "id": "700000001",
+      "username": "fixture_liker1",
+      "full_name": "სახელი 🌿",
+      "is_private": true,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture1.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000002",
+      "pk_id": "700000002",
+      "strong_id__": "700000002",
+      "id": "700000002",
+      "username": "fixture_liker2",
+      "full_name": "María García",
+      "is_private": false,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture2.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000003",
+      "pk_id": "700000003",
+      "strong_id__": "700000003",
+      "id": "700000003",
+      "username": "fixture_liker3",
+      "full_name": "李明",
+      "is_private": true,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture3.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000004",
+      "pk_id": "700000004",
+      "strong_id__": "700000004",
+      "id": "700000004",
+      "username": "fixture_liker4",
+      "full_name": "სახელი 🌿",
+      "is_private": false,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture4.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000005",
+      "pk_id": "700000005",
+      "strong_id__": "700000005",
+      "id": "700000005",
+      "username": "fixture_liker5",
+      "full_name": "María García",
+      "is_private": true,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture5.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000006",
+      "pk_id": "700000006",
+      "strong_id__": "700000006",
+      "id": "700000006",
+      "username": "fixture_liker6",
+      "full_name": "李明",
+      "is_private": false,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture6.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000007",
+      "pk_id": "700000007",
+      "strong_id__": "700000007",
+      "id": "700000007",
+      "username": "fixture_liker7",
+      "full_name": "სახელი 🌿",
+      "is_private": true,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture7.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000008",
+      "pk_id": "700000008",
+      "strong_id__": "700000008",
+      "id": "700000008",
+      "username": "fixture_liker8",
+      "full_name": "María García",
+      "is_private": false,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture8.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000009",
+      "pk_id": "700000009",
+      "strong_id__": "700000009",
+      "id": "700000009",
+      "username": "fixture_liker9",
+      "full_name": "李明",
+      "is_private": true,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture9.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    },
+    {
+      "pk": "700000010",
+      "pk_id": "700000010",
+      "strong_id__": "700000010",
+      "id": "700000010",
+      "username": "fixture_liker10",
+      "full_name": "სახელი 🌿",
+      "is_private": false,
+      "profile_pic_url": "https://scontent-test.cdninstagram.com/fixture10.jpg",
+      "friendship_status": {
+        "following": false,
+        "followed_by": true,
+        "is_bestie": false
+      }
+    }
+  ],
+  "user_count": 10,
+  "follow_ranking_token": "PRIVATE-FIXTURE-TOKEN",
+  "status": "ok"
+}

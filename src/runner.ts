@@ -1,4 +1,5 @@
-import { db, type Database } from "./db";
+import { PageRunner } from "./page-runner";
+import { db, preferences, type Database } from "./db";
 import { applyObservation, reuseRun, uid } from "./data";
 import {
   CollectionError,
@@ -64,14 +65,17 @@ const fresh = (stage: Checkpoint["stage"]): Checkpoint => ({
   stageCount: 0,
 });
 export class Runner {
+  page: PageRunner;
   private controller?: AbortController;
   private active?: string;
   constructor(
     public database: Database = db,
     public instagram = new Instagram(),
-  ) {}
+  ) {
+    this.page = new PageRunner(database);
+  }
   get busy() {
-    return !!this.active;
+    return !!this.active || this.page.busy;
   }
   private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
     if (typeof navigator !== "undefined" && navigator.locks) {
@@ -90,15 +94,42 @@ export class Runner {
     return operation();
   }
   async recover() {
-    await this.exclusive(async () => {
-      await this.database.runs.where("status").equals("running").modify({
-        status: "paused",
-        reason: "The app closed or reloaded. Resume when ready.",
-        updatedAt: Date.now(),
-      });
-    });
+    const recover = async () => {
+      const browser = typeof chrome !== "undefined" && !!chrome.runtime?.id;
+      if (!browser)
+        await this.database.pendingPageJobs
+          .where("status")
+          .equals("running")
+          .modify({
+            status: "paused",
+            reason: "The app closed or reloaded. Resume when ready.",
+            updatedAt: Date.now(),
+          });
+      await this.database.runs
+        .where("status")
+        .equals("running")
+        .filter((r) => !browser || r.method !== "page")
+        .modify({
+          status: "paused",
+          reason: "The app closed or reloaded. Resume when ready.",
+          updatedAt: Date.now(),
+        });
+    };
+    if (typeof navigator !== "undefined" && navigator.locks)
+      await navigator.locks.request(
+        "instafinder-collection",
+        { ifAvailable: true },
+        async (lock) => {
+          if (lock) await recover();
+        },
+      );
+    else await recover();
   }
   async resolve(value: string, mode: Mode, force = false): Promise<Resolved> {
+    if (mode === "likers")
+      throw new Error(
+        "Collect likers from Instagram using the extension menu.",
+      );
     if (this.busy)
       throw new Error(
         "Pause the current collection before looking up another account.",
@@ -154,6 +185,35 @@ export class Runner {
       return { source, input, mode, key: `profile:${source.id}:${mode}` };
     });
   }
+  async saved(value: string, mode: Mode): Promise<Resolved | undefined> {
+    const input = parseInput(value);
+    if (input.type === "post") {
+      const post = await this.database.posts.get(shortcodeId(input.shortcode));
+      const source = post && (await this.database.profiles.get(post.ownerId));
+      if (post && source)
+        return {
+          source,
+          post,
+          input,
+          mode: "commenters",
+          key: `post:${post.id}:commenters`,
+          cached: true,
+        };
+    } else {
+      const source = await this.database.profiles
+        .where("userName")
+        .equalsIgnoreCase(input.username)
+        .first();
+      if (source)
+        return {
+          source,
+          input,
+          mode,
+          key: `profile:${source.id}:${mode}`,
+          cached: true,
+        };
+    }
+  }
   async previous(resolved: Resolved) {
     return (
       await this.database.runs.where("key").equals(resolved.key).toArray()
@@ -179,6 +239,7 @@ export class Runner {
             : "media";
     const run: Run = {
       id: uid(),
+      method: "direct",
       key: resolved.key,
       sourceId: resolved.source.id,
       targetLabel:
@@ -223,9 +284,25 @@ export class Runner {
   }
   pause() {
     this.controller?.abort();
+    this.page.pause();
   }
   async run(runId: string) {
     if (this.busy) throw new Error("A collection is already running.");
+    const saved = await this.database.runs.get(runId);
+    if (
+      saved?.method === "page" ||
+      (await this.database.pendingPageJobs.get(runId))
+    ) {
+      if (typeof chrome !== "undefined" && chrome.runtime?.id) {
+        const response = await chrome.runtime.sendMessage({
+          type: "collector-resume",
+          id: runId,
+        });
+        if (response?.error) throw new Error(response.error);
+        return;
+      }
+      return this.exclusive(() => this.page.run(runId));
+    }
     return this.exclusive(async () => {
       let run = await this.database.runs.get(runId);
       if (!run) throw new Error("Collection not found.");
@@ -624,7 +701,7 @@ export class Runner {
     if (page.restricted)
       throw new CollectionError(page.restricted, "restricted");
   }
-  async refreshProfile(username: string) {
+  async refreshProfile(username: string, _missionId?: string) {
     const result = await this.resolve(username, "single", true);
     return result.source;
   }

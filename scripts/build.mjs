@@ -3,10 +3,16 @@ import { cp, mkdir } from "node:fs/promises";
 await mkdir("dist", { recursive: true });
 await cp("public", "dist", { recursive: true });
 const options = {
-  entryPoints: { app: "src/main.tsx", background: "src/background.ts" },
+  entryPoints: {
+    app: "src/main.tsx",
+    popup: "src/popup.tsx",
+    background: "src/background.ts",
+    "page-observer": "src/page-observer.ts",
+    "page-driver": "src/page-driver.ts",
+  },
   bundle: true,
   outdir: "dist",
-  format: "esm",
+  format: "iife",
   target: ["chrome110"],
   sourcemap: true,
   minify: !process.argv.includes("--watch"),

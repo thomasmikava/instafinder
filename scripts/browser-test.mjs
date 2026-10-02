@@ -286,7 +286,7 @@ try {
     "The mission menu exposes Edit mission name and Add Candidate Manually; Escape and outside clicks dismiss it.",
   );
   await page.getByRole("button", { name: "Settings & backups" }).click();
-  await page.getByLabel("Delay in seconds").fill("1");
+  await page.getByLabel("Direct requests (seconds)").fill("1");
   await page.getByRole("button", { name: "Save pace" }).click();
   await page
     .getByRole("button", { name: "Show walkthrough", exact: true })
@@ -380,8 +380,8 @@ try {
     { timeout: 30000 },
   );
   assert.equal(
-    await page.locator(".score-badge, .table-score, .review-notes").count(),
-    0,
+    await page.getByLabel("Candidate points", { exact: true }).innerText(),
+    "2 points",
   );
   assert.equal(
     await page
@@ -399,8 +399,35 @@ try {
     "Mission creation and mocked Instagram collection produce three candidates, with a mutual follow ranked first.",
   );
   checks.push(
-    "The main action adds a source; review and candidates expose no scores or ranking explanations.",
+    "The main action adds a source and Review shows a subtle point count without inline ranking explanations.",
   );
+  await page
+    .getByRole("button", { name: "How points are calculated", exact: true })
+    .click();
+  const pointsDialog = page.getByRole("dialog", {
+    name: "How points work",
+    exact: true,
+  });
+  await pointsDialog.waitFor();
+  assert.equal(await pointsDialog.locator(".points-rules li").count(), 4);
+  assert.match(await pointsDialog.innerText(), /including replies/);
+  assert.match(await pointsDialog.innerText(), /they liked/);
+  assert.match(
+    await pointsDialog.innerText(),
+    /Mutual following earns 2 points/,
+  );
+  assert.match(await pointsDialog.innerText(), /each count once per post/);
+  await page.keyboard.press("3");
+  assert.equal(
+    await page.locator(".review-card h2").innerText(),
+    "Avery Stone",
+  );
+  await page.screenshot({
+    path: ".test-artifacts/points-dialog.png",
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+  await pointsDialog.waitFor({ state: "hidden" });
   await page.screenshot({
     path: ".test-artifacts/review-desktop.png",
     fullPage: true,
@@ -427,7 +454,26 @@ try {
     await page.getByRole("columnheader", { name: "Priority" }).count(),
     0,
   );
-  assert.equal(await page.locator(".table-score").count(), 0);
+  await page.getByRole("columnheader", { name: /Points/ }).waitFor();
+  assert.equal(
+    await page
+      .locator("tbody tr")
+      .filter({ hasText: "Avery Stone" })
+      .locator(".table-points")
+      .innerText(),
+    "2",
+  );
+  await page
+    .getByRole("button", { name: "How points are calculated", exact: true })
+    .click();
+  await pointsDialog.waitFor();
+  await pointsDialog
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  await pointsDialog.waitFor({ state: "hidden" });
+  checks.push(
+    "Review and Candidates display actual mission points; both help buttons open the calculation modal, and modal keyboard input cannot review a candidate.",
+  );
   await page
     .getByRole("combobox", { name: "Filter candidates" })
     .selectOption("possible");
