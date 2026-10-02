@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "InstaFinder",
   "version": "0.1.0",
-  "description": "Local Instagram collections and mission-based candidate review.",
+  "description": "Collect Instagram followers, following, commenters and likers, then review profiles to find the person you're looking for.",
   "permissions": ["cookies", "unlimitedStorage", "storage", "scripting"],
   "host_permissions": [
     "https://www.instagram.com/*",

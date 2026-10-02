@@ -1,5 +1,6 @@
 node_modules/
 dist/
+/instafinder-*.zip
 .test-build/
 .test-profile/
 .test-artifacts/
