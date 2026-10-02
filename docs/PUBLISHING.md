@@ -51,9 +51,9 @@ Suggested listing description:
 >
 > Sign in to Instagram in the same Chrome profile and keep collecting Instagram tabs open. Instagram may restrict access or request a cooldown; partial results are clearly labelled. Automatic controls currently recognize English labels. InstaFinder is independent and is not affiliated with Instagram or Meta.
 
-Set the website to `https://github.com/thomasmikava/instafinder` and support to its Issues page. Choose the best matching category available in the dashboard; Productivity is a reasonable fit.
+Set the website to `https://github.com/thomasmikava/instafinder` and support to its Issues page. Choose **Social Networking**, or **Social Media & Networking** if that is the dashboard label. This is the recommended fit for an Instagram-specific extension in [Google's current category guide](https://developer.chrome.com/docs/webstore/best-practices#choose-your-extensions-category-well).
 
-Supply the existing 128×128 icon, a **440×280 promotional image**, and at least one **1280×800 or 640×400 screenshot**. Prefer screenshots of Review, Candidates and the collection panel using fictitious profiles and missions. Do not publish screenshots of private collections. Dimensions and required assets are in [Google's image guide](https://developer.chrome.com/docs/webstore/images). These listing images still need preparing; test screenshots alone are not a polished store listing.
+Prepared assets and copy are in [store/README.md](../store/README.md): the matching 128×128 icon, a **440×280 promotional image**, an optional **1400×560 marquee**, and four **1280×800 screenshots** of the real extension with fictitious profiles. Do not publish screenshots of private collections. Dimensions and required assets are in [Google's image guide](https://developer.chrome.com/docs/webstore/images).
 
 ## 4. Complete privacy practices
 

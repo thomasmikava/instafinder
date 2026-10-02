@@ -1,0 +1,44 @@
+{
+  "name": "InstaFinder",
+  "shortDescription": "Collect Instagram followers, following, commenters and likers, then review profiles to find the person you're looking for.",
+  "detailedDescription": "Find someone on Instagram by reviewing accounts connected to profiles or posts you know. For example, start with an event venue’s account or an event post to look for someone you met there.\n\nCreate a named mission, open an Instagram profile or post, and choose Followers, Following, Commenters or Likers from the extension menu. Collection runs through Instagram’s interface, with automatic scrolling and optional manual control.\n\nReview each person’s photo, name and profile. Choose Not the person, Probably not or Possible match. Search and filter your candidates, change decisions and undo a choice. Profiles with more known connections to your sources appear first.\n\nYour missions and decisions stay in your browser. No InstaFinder account, subscription or paid collection limit. Export and restore backups from Settings.\n\nSign in to Instagram in the same Chrome profile and keep collecting Instagram tabs open. Instagram’s access restrictions and cooldowns still apply. Automatic controls currently recognize English labels.\n\nInstaFinder is an independent tool, not affiliated with Instagram or Meta.",
+  "category": "Social Networking",
+  "categoryNote": "Select Social Media & Networking if that is the dashboard label. This is a recommendation for an Instagram-specific extension; Google’s current category guide uses that name.",
+  "language": "English",
+  "price": "Free",
+  "inAppPurchases": "No",
+  "matureContent": "No — the listing and bundled demo images contain no adult content.",
+  "visibility": "Public",
+  "regions": "All regions",
+  "homepageUrl": "https://github.com/thomasmikava/instafinder",
+  "supportUrl": "https://github.com/thomasmikava/instafinder/issues",
+  "privacyPolicyUrl": "https://github.com/thomasmikava/instafinder/blob/main/docs/PRIVACY.md",
+  "singlePurpose": "Help users find a person among Instagram accounts by collecting profiles connected to user-selected sources and reviewing those profiles in named missions.",
+  "remoteCode": "No. All JavaScript and dependencies are bundled in the extension. Instagram responses and profile photos are data, not executable code.",
+  "permissionJustifications": {
+    "cookies": "Read Instagram’s CSRF cookie in memory for user-requested direct collection. Authentication cookies are sent only to Instagram and are never saved in the database or exported in backups.",
+    "unlimitedStorage": "Keep large user-requested profile collections, relationships and resumable checkpoints in the local extension database without the normal storage quota.",
+    "storage": "Keep temporary per-tab collection bindings in chrome.storage.session. Collected profiles and decisions remain in local IndexedDB; no storage sync is used.",
+    "scripting": "Attach bundled collection scripts to the Instagram tab selected by the user, including tabs that were already open when the extension was installed. Scripts collect only within an explicitly started job.",
+    "hostPermissions": "Access www.instagram.com to identify selected profiles/posts, operate native collection controls, capture responses within the requested scope and make user-requested direct collection requests. Access i.instagram.com for the existing direct adapter’s alternate Instagram endpoint. Access *.cdninstagram.com and *.fbcdn.net to fetch and display profile photos without cookies or referrers."
+  },
+  "dataTypesHandled": {
+    "Personally identifiable information": "Instagram IDs, usernames, display names and profile/photo URLs of collected accounts.",
+    "Authentication information": "Instagram’s existing authenticated session; CSRF cookies are handled in memory only and never exported.",
+    "Web history": "Selected Instagram profile/post URLs used as collection targets. No browsing history is recorded across unrelated sites.",
+    "Website content": "Profiles, follow relationships, post ownership, commenter/reply/liker identities and pagination data within the requested scope. No direct messages or saved comment text.",
+    "User activity": "Scoped native request and list-navigation/pagination observations used for collection and progress. No general browsing-behavior logs."
+  },
+  "dataTypesNotHandled": [
+    "Health information",
+    "Financial and payment information",
+    "Location",
+    "Personal communications"
+  ],
+  "dataUseCertifications": [
+    "The extension does not sell or transfer user data outside the permitted, disclosed functionality. It communicates with Instagram and its photo hosts to provide that functionality; the developer receives no collected database.",
+    "The extension does not use or transfer user data for purposes unrelated to its single purpose.",
+    "The extension does not use or transfer user data to determine creditworthiness or for lending purposes."
+  ],
+  "testingInstructions": "1. Sign in to Instagram normally in the same Chrome profile. InstaFinder has no separate account.\n2. Click the extension icon, choose Open InstaFinder and create a mission such as “Find Alex”.\n3. Open an accessible Instagram profile. Click the extension icon and collect Following or Followers. Keep the Instagram tab open and observe its progress panel.\n4. Open a post/reel with comments and likes. Collect Commenters, including replies, and Likers.\n5. Open the mission’s Review view, make a choice and Undo. In Candidates, filter by outcome and change a decision. Test backup export/restore in Settings.\n6. Pause and Resume from the collection panel. If Instagram requests a cooldown, honor the displayed retry time."
+}

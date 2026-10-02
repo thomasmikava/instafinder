@@ -1,0 +1,109 @@
+Name
+====
+InstaFinder
+
+Short description
+=================
+Collect Instagram followers, following, commenters and likers, then review profiles to find the person you're looking for.
+
+Detailed description
+====================
+Find someone on Instagram by reviewing accounts connected to profiles or posts you know. For example, start with an event venue’s account or an event post to look for someone you met there.
+
+Create a named mission, open an Instagram profile or post, and choose Followers, Following, Commenters or Likers from the extension menu. Collection runs through Instagram’s interface, with automatic scrolling and optional manual control.
+
+Review each person’s photo, name and profile. Choose Not the person, Probably not or Possible match. Search and filter your candidates, change decisions and undo a choice. Profiles with more known connections to your sources appear first.
+
+Your missions and decisions stay in your browser. No InstaFinder account, subscription or paid collection limit. Export and restore backups from Settings.
+
+Sign in to Instagram in the same Chrome profile and keep collecting Instagram tabs open. Instagram’s access restrictions and cooldowns still apply. Automatic controls currently recognize English labels.
+
+InstaFinder is an independent tool, not affiliated with Instagram or Meta.
+
+Category
+========
+Social Networking
+Select Social Media & Networking if that is the dashboard label. This is a recommendation for an Instagram-specific extension; Google’s current category guide uses that name.
+
+Language
+========
+English
+
+Price / in-app purchases
+========================
+Free / No
+
+Mature content
+==============
+No — the listing and bundled demo images contain no adult content.
+
+Visibility / distribution
+=========================
+Public / All regions
+
+Website URL
+===========
+https://github.com/thomasmikava/instafinder
+
+Support URL
+===========
+https://github.com/thomasmikava/instafinder/issues
+
+Privacy policy URL
+==================
+https://github.com/thomasmikava/instafinder/blob/main/docs/PRIVACY.md
+
+Single purpose
+==============
+Help users find a person among Instagram accounts by collecting profiles connected to user-selected sources and reviewing those profiles in named missions.
+
+Remote code
+===========
+No. All JavaScript and dependencies are bundled in the extension. Instagram responses and profile photos are data, not executable code.
+
+Permission justification: cookies
+=================================
+Read Instagram’s CSRF cookie in memory for user-requested direct collection. Authentication cookies are sent only to Instagram and are never saved in the database or exported in backups.
+
+Permission justification: unlimitedStorage
+==========================================
+Keep large user-requested profile collections, relationships and resumable checkpoints in the local extension database without the normal storage quota.
+
+Permission justification: storage
+=================================
+Keep temporary per-tab collection bindings in chrome.storage.session. Collected profiles and decisions remain in local IndexedDB; no storage sync is used.
+
+Permission justification: scripting
+===================================
+Attach bundled collection scripts to the Instagram tab selected by the user, including tabs that were already open when the extension was installed. Scripts collect only within an explicitly started job.
+
+Permission justification: hostPermissions
+=========================================
+Access www.instagram.com to identify selected profiles/posts, operate native collection controls, capture responses within the requested scope and make user-requested direct collection requests. Access i.instagram.com for the existing direct adapter’s alternate Instagram endpoint. Access *.cdninstagram.com and *.fbcdn.net to fetch and display profile photos without cookies or referrers.
+
+Data types to disclose
+======================
+Personally identifiable information: Instagram IDs, usernames, display names and profile/photo URLs of collected accounts.
+Authentication information: Instagram’s existing authenticated session; CSRF cookies are handled in memory only and never exported.
+Web history: Selected Instagram profile/post URLs used as collection targets. No browsing history is recorded across unrelated sites.
+Website content: Profiles, follow relationships, post ownership, commenter/reply/liker identities and pagination data within the requested scope. No direct messages or saved comment text.
+User activity: Scoped native request and list-navigation/pagination observations used for collection and progress. No general browsing-behavior logs.
+
+Data types not handled
+======================
+Health information, Financial and payment information, Location, Personal communications
+
+Data-use certifications
+=======================
+The extension does not sell or transfer user data outside the permitted, disclosed functionality. It communicates with Instagram and its photo hosts to provide that functionality; the developer receives no collected database.
+The extension does not use or transfer user data for purposes unrelated to its single purpose.
+The extension does not use or transfer user data to determine creditworthiness or for lending purposes.
+
+Reviewer test instructions
+==========================
+1. Sign in to Instagram normally in the same Chrome profile. InstaFinder has no separate account.
+2. Click the extension icon, choose Open InstaFinder and create a mission such as “Find Alex”.
+3. Open an accessible Instagram profile. Click the extension icon and collect Following or Followers. Keep the Instagram tab open and observe its progress panel.
+4. Open a post/reel with comments and likes. Collect Commenters, including replies, and Likers.
+5. Open the mission’s Review view, make a choice and Undo. In Candidates, filter by outcome and change a decision. Test backup export/restore in Settings.
+6. Pause and Resume from the collection panel. If Instagram requests a cooldown, honor the displayed retry time.
